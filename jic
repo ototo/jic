@@ -1,0 +1,2110 @@
+#!/usr/bin/python
+# coding=utf-8
+#
+# JIC - JIRA CLI client
+#   by Serge Broslavsky <serge.broslavsky@linaro.org>
+#
+# License: GPLv2
+#
+
+from __future__ import print_function
+from sys import argv, exit, stdout, stderr
+from signal import signal, SIGINT
+from os.path import expanduser, expandvars, isfile
+import datetime
+from tempfile import NamedTemporaryFile
+import re
+from os import remove
+from getpass import getpass
+import subprocess
+import base64
+import urlparse
+from tlslite.utils import keyfactory
+import oauth2 as oauth
+
+try:
+    from jira.client import JIRA
+    from jira.exceptions import JIRAError
+    from jira.resources import Comment
+except ImportError:
+    print('Could not find jira-python module. Please install it as '\
+          'described in INSTALL file. Aborting.')
+    exit(1)
+
+__version__ = '13.41.3'
+
+
+OAUTH_APPLICATION_KEY='jic-tool'
+DEFAULT_CONFIG_FILE='~/.jicrc'
+ASK_FOR_VALUE='<ask>'
+
+
+class Configuration (object):
+    """Persistent configuration object."""
+
+    version = '2'
+    supported_versions = {} # initialized after the class definition
+    CONFIG_FILE_SIGNATURE = '# JIC Configuration File Version '
+
+    internal_names = (
+        '__options', 'ask_for_value', 'file_exists',
+        'generate_file', 'read_from_file', 'edit_file',
+        'parse_config_v1', 'parse_config_v1')
+
+    DEFVAL = 0
+    SECRET = 1
+    AUTOGENERATE = 2
+    DESCRIPTION = 3
+
+    option_definitions = {
+        # <name>        <defval> <secret> <autogenerate> <description>
+        'config':     ( DEFAULT_CONFIG_FILE, False, False,
+                        'Configuration file.'),
+        'browser':    ( 'sensible-browser', False, True,
+                        'Browser to use when opening issues'),
+        'depth':      ( 1, False, True,
+                        'Tree traversal depth for tree related '
+                        'operations.'),
+        'server':     ( ASK_FOR_VALUE, False, True,
+                        'JIRA server URL.'),
+        'user':       ( ASK_FOR_VALUE, False, True,
+                        'JIRA user to use.'),
+        'password':   ( ASK_FOR_VALUE, True, True,
+                        'JIRA password to use'),
+        'oauth_pair': ( None, True, True,
+                        'OAuth credentials in the form "token:secret"'\
+                        ',\nforces application to use OAuth when '\
+                        'present'),
+        'oauth_cert': ( None, True, True,
+                        'OAuth private key file (the one that '\
+                        'corresponds to the\npublic key used '\
+                        'to register JIC in JIRA'),
+        'editor':     ( 'sensible-editor', False, True,
+                        'Text editor to be used when needed'),
+        'tree_chars': ( '─│<>^v┌┬┐├┼┤└┴┘', False, False,
+                        'Characters to be used when drawing '\
+                        'hierarchies.\nCharacters are: horizontal '\
+                        'line, vertical line, left arrow, right '\
+                        'arrow,\nup arrow, down arrow, top-left '\
+                        'corner, top cross, tor-right corner, left\n'\
+                        'cross, middle cross, right cross, '\
+                        'bottom-left corner, bottom cross,\n'\
+                        'bottom-right corner.'),
+    }
+
+    def __init__(self):
+        object.__setattr__(self, '__options', {})
+        keys = sorted(Configuration.option_definitions.keys())
+        for key in keys:
+            object.__getattribute__(self, '__options')[key] = \
+                Configuration.option_definitions[key][
+                    Configuration.DEFVAL]
+
+    def file_exists(self, name=None):
+        """Checks if config file exists"""
+        file_name = name if name else DEFAULT_CONFIG_FILE
+        file_name = expanduser(expandvars(file_name))
+        return isfile(file_name)
+
+    def read_from_file(self, name=None):
+        """Reads configuration from a v2 configuration file."""
+        opts = object.__getattribute__(self, '__options')
+        try:
+            version = None
+            file_name = name if name else DEFAULT_CONFIG_FILE
+            file_name = expanduser(expandvars(file_name))
+            f = open(file_name, 'r')
+            config_text = f.read()
+            f.close()
+            # check version
+            if not config_text.startswith(
+                    Configuration.CONFIG_FILE_SIGNATURE):
+                raise IOError(
+                    'Configuration file %s has no signature '
+                    'string. Aborting.' % file_name)
+            else:
+                version = \
+                    config_text[ \
+                        len(Configuration.CONFIG_FILE_SIGNATURE):]\
+                            .split()[0]
+                if version not in Configuration.supported_versions:
+                    raise IOError(
+                        'Config %s has version %s instead of '
+                        'expected %s. Aborting.' % (
+                            file_name, version,
+                            Configuration.version))
+                # call appropriate config parser
+                if Configuration.supported_versions[version]\
+                        (self, file_name, config_text):
+                    exit(2)
+        except IOError, e:
+            pr(unicode(e))
+            exit(2)
+
+        # validate/convert configuration data
+        tree_chars = opts.get('tree_chars',
+                 Configuration.option_definitions['tree_chars'][
+                     Configuration.DEFVAL])
+        if type(tree_chars) != unicode:
+            tree_chars = tree_chars.decode('utf-8')
+        opts['tree_chars'] = tree_chars
+
+        if opts['oauth_pair'] is not None:
+            opts['password'] = None
+
+        if opts['oauth_cert'] is not None:
+            try:
+                f = open(expanduser(expandvars(opts['oauth_cert'])))
+                key = f.read().strip()
+                opts['oauth_cert'] = key
+            except Exception, e:
+                pre(u'Failed to read private key from %s: %s\n'\
+                    u'OAuth is not available' % \
+                    (opts['oauth_cert'], unicode(e)))
+                exit(1)
+
+
+    def parse_config_v1(self, file_name, config_text):
+        """Parses config and populates __options"""
+        lineno = 0
+        for line in config_text.splitlines(False):
+            lineno += 1
+            stripped = line.strip()
+            if stripped.startswith('#') or not len(stripped):
+                continue
+            parts = stripped.partition('=')
+            if parts[1] != '=':
+                pr('%s: line %d: invalid syntax: %s' % \
+                    (file_name, lineno, line))
+                continue
+            option = parts[0].strip()
+            value_part = parts[2].strip()
+            if value_part.startswith('"') or \
+                    value_part.startswith("'"):
+                escape = False
+                value = ''
+                for char in value_part[1:]:
+                    if escape:
+                        value += char
+                        escape = False
+                        continue
+                    if char == '\\':
+                        escape = True
+                        continue
+                    if char == value_part[0]:
+                        break
+                    value += char
+            else:
+                value = value_part
+            object.__getattribute__(self, '__options')[option] = value
+        return 0
+
+    def parse_config_v2(self, file_name, config_text):
+        """Parses config and populates __options"""
+        parsed = {}
+        try:
+            exec(config_text, globals(), parsed)
+            for option, value in parsed.iteritems():
+                if option == '__options':
+                    pr('Configuration file \'%s\' is trying to '\
+                       'redefine the built-in variable %s - ignored' % \
+                       (file_name, option))
+                    continue
+                object.__getattribute__(
+                    self, '__options')[option] = value
+
+        except Exception, e:
+            pr(u'Error parsing configuration file \'%s\': %s' % \
+                (file_name, unicode(e)))
+            return 1
+        return 0
+
+    def generate_file(self, name=None):
+        """Creates a default configuration file"""
+        try:
+            file_name = name if name else DEFAULT_CONFIG_FILE
+            file_name = expanduser(expandvars(file_name))
+            f = open(file_name, 'w')
+            f.write(Configuration.CONFIG_FILE_SIGNATURE + \
+                    Configuration.version + '\n\n')
+            keys = sorted(Configuration.option_definitions.keys())
+            for key in keys:
+                value, secret, autogenerate, description = \
+                    Configuration.option_definitions[key]
+                if not autogenerate:
+                    continue
+                for line in description.splitlines():
+                    f.write('# %s\n' % line)
+                if type(value) in (str, unicode):
+                    value = '"' + value + '"'
+                f.write('%s = %s\n\n' % (key, value))
+            f.close()
+        except IOError, e:
+            pr(unicode(e))
+            exit(2)
+
+    def ask_for_value(self, name, secret, description):
+        """Prompts the user for a value, caches it afterwards."""
+        pr(description)
+        prompt = name + ': '
+        try:
+            if secret:
+                value = getpass(prompt)
+            else:
+                value = raw_input(prompt)
+        except EOFError:
+            value = None
+        object.__getattribute__(self, '__options')[name] = value
+        return value
+
+    def edit_file(self):
+        """Starts text editor to edit config file, reloads it
+        afterwards."""
+
+        if not edit_file(self,
+            expanduser(expandvars(
+                object.__getattribute__(self,
+                    '__options')['config']))):
+            self.read_from_file()
+
+    def __getattribute__(self, name):
+        if name in Configuration.internal_names:
+            return object.__getattribute__(self, name)
+        value = object.__getattribute__(self, '__options')[name]
+        if value == ASK_FOR_VALUE:
+            return self.ask_for_value(
+                name,
+                Configuration.option_definitions[name][
+                    Configuration.SECRET],
+                Configuration.option_definitions[name][
+                    Configuration.DESCRIPTION])
+        else:
+            return value
+
+    def __setattr__(self, name, value):
+        if name in Configuration.internal_names:
+            raise RuntimeError('Configuration is read only')
+        object.__getattribute__(self, '__options')[name] = value
+
+
+    def __str__(self):
+        string = ''
+        keys = sorted(Configuration.option_definitions.keys())
+        for key in keys:
+            string += '* %s = "%s"\n' % (
+                key, object.__getattribute__(self, '__options')[key])
+        return string
+
+Configuration.supported_versions = {
+    '1': Configuration.parse_config_v1,
+    '2': Configuration.parse_config_v2
+}
+
+# class Configuration
+
+
+def ctrl_c_handler(signum, frame):
+    pr('\nInterrupted by user.')
+    exit(1)
+
+status_code_messages = {
+    400: u'Bad Request',
+    401: u'Unauthorized',
+    403: u'Forbidden',
+    404: u'Not Found',
+    500: u'Internal Server Error'
+}
+
+def error_from_status_code(status_code):
+    return status_code_messages.get(status_code, u'Unknown')
+
+def error_message(exception):
+    if exception is None \
+    or 'status_code' not in exception.__dict__:
+        return u'Unknown error'
+
+    return u'%d: %s' % \
+        (exception.status_code,
+         error_from_status_code(exception.status_code))
+
+def confirm(prompt, strict=False):
+    prompt = prompt + u' '
+    response = ''
+    while response == '':
+        response = raw_input(prompt)
+        if strict:
+            if response == 'YES':
+                return True
+            elif response != '':
+                return False
+        else:
+            if response == '':
+                continue
+            if response.lower() == 'y':
+                return True
+            else:
+                return False
+
+def pre(string=u'', end=u'\n'):
+    print(string.encode('utf-8'), file=stderr, end=end)
+
+def pr(string=u'', end=u'\n'):
+    print(string.encode('utf-8'), file=stdout, end=end)
+
+re_issue_key = re.compile(r'''\w+-\d+''')
+
+def is_issue_id(id):
+    return re_issue_key.match(id) is not None
+
+re_comment_key = re.compile(r'''\w+-\d+:\d+''')
+
+def is_comment_key(key):
+    return re_comment_key.match(key) is not None
+
+def get_issue_type(issue):
+    if issue.fields.issuetype.name == u'Roadmap Card':
+        if issue.fields.summary.lower().startswith(u'epic:'):
+            return u'RME'
+        else:
+            return u'RMC'
+    elif issue.fields.issuetype.name == u'Engineering card':
+        return u'EC'
+    elif issue.fields.issuetype.name == u'Blueprint':
+        return u'EBP'
+    elif issue.fields.issuetype.name == u'Sub-task':
+        return u'EST'
+    elif issue.fields.issuetype.name == u'New Feature':
+        return u'EFE'
+    elif issue.fields.issuetype.name == u'Bug':
+        return u'BUG'
+
+    return issue.fields.issuetype.name
+
+def parse_date(string):
+    return datetime.datetime.strptime(string[:19], '%Y-%m-%dT%H:%M:%S')
+
+def format_person(person):
+    if person is None:
+        return u''
+    else:
+        return u'%s <%s>' % (person.displayName, person.emailAddress)
+
+def format_diff(value_from, value_to, what):
+    if value_from is None:
+        value_from = ''
+    if value_to is None:
+        value_to = ''
+
+    f_from = NamedTemporaryFile(
+        mode='wt', prefix='jic-', delete=False)
+    f_from.write(value_from.encode('utf-8'))
+    f_from.close()
+
+    f_to = NamedTemporaryFile(
+        mode='wt', prefix='jic-', delete=False)
+    f_to.write(value_to.encode('utf-8'))
+    f_to.close()
+
+    args = ('diff', '-u', f_from.name, f_to.name)
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+
+    raw_diff, stderr = proc.communicate()
+
+    remove(f_to.name)
+    remove(f_from.name)
+
+    diff = u''
+    for line in raw_diff.splitlines():
+        line = line.decode('utf-8')
+        if line.startswith(u'\\ No newline') \
+        or line.startswith(u'--- ') \
+        or line.startswith(u'+++ '):
+            continue
+        if line.startswith(u'@@'):
+            diff += line + u' ' + what + u'\n'
+        else:
+            diff += line + u'\n'
+
+    return diff
+
+def edit_file(cfg, file_name):
+    try:
+        subprocess.call([cfg.editor, file_name])
+        return 0
+    except:
+        pr('Could not edit file \'%s\'' % file_name)
+        return 1
+
+def get_from_editor(cfg, initial_text):
+    f_to_edit = NamedTemporaryFile(
+            mode='wt', prefix='jic-', delete=False)
+    f_to_edit.write(initial_text.encode('utf-8'))
+    f_to_edit.close()
+    if not edit_file(cfg, f_to_edit.name):
+        f_edited = open(f_to_edit.name)
+        new_content = f_edited.read()
+        f_edited.close()
+        remove(f_to_edit.name)
+        if new_content != initial_text:
+            return new_content
+    return None
+
+def print_comment(cfg, comment):
+    created = parse_date(comment.created)
+    updated = parse_date(comment.updated)
+
+    if updated != created:
+        pr(u'[%s] On %s, %s wrote and\non %s, %s updated:' % (
+            comment.id,
+            created, format_person(comment.author),
+            updated, format_person(comment.updateAuthor)))
+    else:
+        pr(u'[%s] On %s, %s wrote:' % (
+                comment.id,
+                parse_date(comment.created),
+                format_person(comment.author)))
+    for line in comment.body.split('\n'):
+        pr(u'> %s' % line)
+    pr()
+
+    return 0
+
+# TODO: add "Implements:" field
+# TODO: add multiline value formatting
+def print_issue(cfg, issue, show_body=True, show_links=True,
+                show_comments=True, show_history=False):
+    created = parse_date(issue.fields.created)
+    updated = parse_date(issue.fields.updated)
+    components = u''
+    if issue.fields.components is not None:
+        for component in issue.fields.components:
+            if len(components):
+                components += u', %s' % component.name
+            else:
+                components += component.name
+
+    labels = u''
+    if issue.fields.labels is not None:
+        for label in issue.fields.labels:
+            if len(labels):
+                labels += u', %s' % label
+            else:
+                labels += label
+
+    fixVersions = u''
+    for fixVersion in issue.fields.fixVersions:
+        if len(fixVersions):
+            fixVersions += u', %s' % fixVersion.name
+        else:
+            fixVersions += fixVersion.name
+
+    # TODO: sponsors is using a custom field, make it configurable and
+    # generic
+    sponsors = u''
+    if 'issue.fields.customfield_10203' in issue.fields.__dict__ \
+            and issue.fields.customfield_10203 is not None:
+        for sponsor in issue.fields.customfield_10203:
+            if len(sponsors):
+                sponsors += u', %s' % sponsor.value
+            else:
+                sponsors += sponsor.value
+
+    url = cfg.server + '/browse/' + issue.key
+
+    pr(
+u'''Issue: %s
+Summary: %s
+''' % (
+        issue.key,
+        issue.fields.summary
+    ), end=u'')
+    if show_body:
+        pr(
+u'''Type: %s
+FixVersions: %s
+Priority: %s
+Status: %s
+Resolution: %s
+Date: %s UTC / %s UTC
+From: %s
+To: %s
+Project: %s
+Components: %s
+Labels: %s
+Sponsors: %s
+URL: %s''' % (
+            issue.fields.issuetype.name \
+                if issue.fields.issuetype is not None else u'N/A',
+            fixVersions,
+            issue.fields.priority.name \
+                if issue.fields.priority is not None else u'N/A',
+            issue.fields.status.name \
+                if issue.fields.status is not None else u'N/A',
+            issue.fields.resolution.name \
+                if issue.fields.resolution is not None else u'N/A',
+            updated, created,
+            format_person(issue.fields.reporter),
+            format_person(issue.fields.assignee),
+            issue.fields.project.name \
+                if issue.fields.project is not None else u'N/A',
+            components,
+            labels,
+            sponsors,
+            url
+        ), end=u'')
+
+        pr()
+        if issue.fields.description:
+            pr(u'\n%s\n' %
+                issue.fields.description.strip())
+        else:
+            pr(u'\n<empty>\n')
+
+    if show_links:
+        pr(u'======== Links ========\n')
+        print_issue_links(issue, True, True, u' ')
+        pr()
+
+    if show_comments:
+        pr(u'======== Comments ========\n')
+        for comment in jira.comments(issue):
+            print_comment(cfg, comment)
+
+    if show_history:
+        pr('======== Change History ========\n')
+        for history in issue.changelog.histories:
+            when = parse_date(history.created)
+            who = format_person(history.author)
+            pr(u'On %s, %s changed:' % (when, who))
+            for change in history.items:
+                what = change.field
+                from_value = change.fromString \
+                           if change.fromString is not None \
+                           else change.__dict__['from']
+                to_value = change.toString \
+                         if change.toString is not None \
+                         else change.to
+                pr(format_diff(from_value, to_value, what))
+
+
+def print_issue_oneliner(issue, prefix=u''):
+    resolution = u''
+    if 'resolution' in issue.fields.__dict__:
+        if issue.fields.resolution is not None:
+            resolution = u' / ' + issue.fields.resolution.name
+    pr(u'%s%s: %s - %s - %s%s' % (
+            prefix,
+            get_issue_type(issue), issue.key,
+            issue.fields.summary,
+            issue.fields.status.name,
+            resolution
+    ))
+
+def cmd_list_issues(cfg, args):
+    assigned = False
+    reported = False
+    users = []
+    in_error = False
+    if len(args):
+        for arg in args:
+            larg = arg.lower()
+            if larg in ('a', 'as', 'ass', 'assi', 'assig', 'assign',
+                        'assigne', 'assigned'):
+                assigned = True
+            elif larg in ('r', 're', 'rep', 'repo', 'repor', 'report',
+                          'reporte', 'reported'):
+                reported = True
+            elif larg in ('a', 'al', 'all'):
+                assigned = True
+                reported = True
+            elif larg in ('m', 'me', 'my', 'mi', 'min', 'mine'):
+                users.append(cfg.user)
+            else:
+                users.append(arg)
+    if not (assigned or reported):
+        assigned = True
+
+    if not len(users):
+        users.append(cfg.user)
+
+    for user in users:
+        query = u''
+        if assigned:
+            query_type = u'assigned'
+            query += 'assignee="%s"' % user
+            if reported:
+                query_type += u' and/or reported'
+                query += ' OR reporter="%s"' % user
+        else:
+            query += 'reporter="%s"' % user
+            query_type = u'reported'
+
+        pre('Query: ' + query)
+        try:
+            jira = get_jira(cfg)
+            issues = jira.search_issues(
+                query,
+                fields='summary,status,issuetype,resolution,assignee,reporter',
+                maxResults=-1)
+        except JIRAError, e:
+            pr(error_message(e))
+            return 1
+        if len(issues):
+            if user == cfg.user:
+                pr(u'You have %d %s issues:' % \
+                    (len(issues), query_type))
+            else:
+                pr('%s has %d %s issues:' % \
+                    (user, len(issues), query_type))
+            for issue in issues:
+                if reported and assigned:
+                    prefix = u'A' \
+                        if issue.fields.assignee.name == user else u''
+                    prefix += u'R' \
+                        if issue.fields.reporter.name == user else u''
+                    prefix = u'[%s] ' % prefix
+                else:
+                    prefix = u''
+                print_issue_oneliner(issue, prefix)
+        else:
+            if user == cfg.user:
+                pr(u'You have no %s issues!' % query_type)
+            else:
+                pr(u'%s has no %s issues!' % (user, query_type))
+        pr()
+    return 0
+
+QUOTES = ('\'', '"')
+
+def quote_query_values(query):
+    processed = u''
+    getting_value = False
+    quoted_value = False
+    escape_next = False
+    value = u''
+    for ch in query:
+        if getting_value:
+            if ch == '\\':
+                escape_next = True
+                continue
+
+            if escape_next:
+                value += ch
+                escape_next = False
+                continue
+
+            if quoted_value:
+                if ch in QUOTES:
+                    processed += u'"' + value + '"'
+                    getting_value = False
+                    quoted_value = False
+                    value = u''
+                    continue
+                else:
+                    value += ch
+                    continue
+            else:
+                if not len(value) and ch in QUOTES:
+                    quoted_value = True
+                    continue
+                elif ch.isspace():
+                    processed += u'"' + value + u'" '
+                    getting_value = False
+                    quoted_value = False
+                    value = u''
+                else:
+                    value += ch
+        else:
+            if ch == '\\':
+                escape_next = True
+                continue
+
+            if escape_next:
+                processed += ch
+                escape_next = False
+                continue
+
+            if ch == u'=':
+                processed += ch
+                getting_value = True
+                continue
+
+            processed += ch
+
+    if len(value) and getting_value:
+        if quoted_value:
+            pr('Unbalanced quotes in query - restoring the balance')
+            processed += u'"' + value + u'"'
+        else:
+            processed += u'"' + value + u'"'
+
+    return processed.strip()
+
+PROMPT_GET_JQL_QUERY = \
+"""
+# Please enter your JQL query into this file.
+# Leave the file intact to cancel the operation.
+# Lines starting with '#' are comments and will not be used.
+"""
+
+def cmd_query_issues(cfg, args):
+    in_error = False
+    if not len(args):
+        text = get_from_editor(cfg, PROMPT_GET_JQL_QUERY)
+        if not text:
+            pr('Aborted by the user.')
+            return 0
+
+        text = text.decode('utf-8')
+        query = u''
+        for line in text.splitlines(False):
+            sline = line.strip()
+            if not len(sline) or sline.startswith('#'):
+                continue
+            if query:
+                query += u' '
+            query += sline
+    else:
+        query = u' '.join(args)
+
+    query = quote_query_values(query)
+
+    pre('Query: ' + query)
+    try:
+        jira = get_jira(cfg)
+        issues = jira.search_issues(
+            query,
+            fields='summary,status,issuetype,resolution,assignee,reporter',
+            maxResults=-1)
+    except JIRAError, e:
+        pr(error_message(e))
+        return 1
+    if len(issues):
+        for issue in issues:
+            print_issue_oneliner(issue, u'')
+        pr()
+    return 0
+
+def print_issue_links(issue, go_up, go_down, prefix=u''):
+    links = issue.fields.issuelinks
+    for link in links:
+        if 'inwardIssue' in link.__dict__:
+            # link to a child
+            if not go_down:
+                continue
+            icon = '-'
+            name = link.type.inward
+            other = link.inwardIssue
+        else:
+            # link to the parent
+            if not go_up:
+                continue
+            icon = '+'
+            name = link.type.outward
+            other = link.outwardIssue
+        print_issue_oneliner(other,
+            '%s%s %s ' % (prefix, icon, name))
+    return 0
+
+def cmd_list_links(cfg, args):
+    jira = get_jira(cfg)
+    in_error = False
+    for arg in args:
+        if is_issue_id(arg):
+            if not in_error:
+                try:
+                    issue = jira.issue(arg)
+                    print_issue_links(issue, True, True, u' ')
+                except JIRAError, e:
+                    in_error = True
+                    pr(u'%s - %s' % (arg, error_message(e)))
+                    in_error = True
+        else:
+            pr('Invalid argument: ' + arg)
+            in_error = True
+    return 1 if in_error else 0
+
+
+# tree line symbol indices
+TREE_LINE_HL = 0
+TREE_LINE_VL = 1
+TREE_LINE_LA = 2
+TREE_LINE_RA = 3
+TREE_LINE_UA = 4
+TREE_LINE_DA = 5
+TREE_LINE_TL = 6
+TREE_LINE_TC = 7
+TREE_LINE_TR = 8
+TREE_LINE_LC = 9
+TREE_LINE_MC = 10
+TREE_LINE_RC = 11
+TREE_LINE_BL = 12
+TREE_LINE_BC = 13
+TREE_LINE_BR = 14
+
+def print_link(source, link, extra=''):
+    res = u'Link {id: %s; source: %s' % (link.id, source.key)
+    if 'inwardIssue' in link.__dict__:
+        res += u'; inwardIssue: %s' % link.inwardIssue.key
+    if 'outwardIssue' in link.__dict__:
+        res += u'; outwardIssue: %s' % link.outwardIssue.key
+    res += u'; type: %s (%s)' % (
+        link.type.name,
+        link.type.inward \
+            if 'inwardIssue' in link.__dict__ \
+            else link.type.outward)
+    res += u'}%s' % extra
+    pr(res)
+
+
+def print_issue_tree(cfg, jira, seed_issue, link_types, maxdepth, visit_parents,
+                     visit_children, stick_to_the_project, prefix=''):
+    direction = 'both'
+    if visit_parents:
+        if not visit_children:
+            direction = 'up'
+    elif visit_children:
+        if not visit_parents:
+            direction = 'down'
+
+    trees = []
+    head_index = {}
+    issue_index = {}
+    traversed_links = set()
+
+    project = seed_issue.fields.project.id \
+            if stick_to_the_project \
+            else None
+
+    downlink_queue = [
+        # parent_issue, direction, link_type, issue, depth
+        (None, direction, None, seed_issue, 0),
+    ]
+
+    uplink_queue = [
+        # child_issue, direction, link_type, issue, depth
+    ]
+
+    pre('Building the tree', end=u'')
+    stderr.flush()
+
+    progress_msg = u''
+    progress_msg_len = len(progress_msg)
+    # process child issues first
+    while len(downlink_queue):
+        parent_issue, direction, link_type, issue, depth = \
+            downlink_queue.pop(0)
+
+        progress_msg = '\rBuilding the tree: ' + issue.key
+        new_progress_msg_len = len(progress_msg)
+        progress_msg += ' ' * (\
+            (progress_msg_len - len(progress_msg)) \
+            if progress_msg_len - len(progress_msg) > 0 \
+            else 0)
+        progress_msg_len = new_progress_msg_len
+        pre(progress_msg, end='')
+        stderr.flush()
+
+        go_up = direction in ('up', 'both')
+        go_down = direction in ('down', 'both')
+
+        if parent_issue is None:
+            # get a real object, not a proxy
+            node = (issue, [])
+            issue_index[issue.key] = node
+            trees = [node,]
+            head_index[issue.key] = node
+
+            if maxdepth > 0 and depth == maxdepth:
+                continue
+            # bootstrapping the queue
+            #
+            # this is the first node to build the tree from
+            # tree is created with just this node being the only one
+            links = issue.fields.issuelinks
+            for link in links:
+                is_downlink = ('inwardIssue' in link.__dict__)
+                if not is_downlink and not go_up:
+                    continue
+                if is_downlink and not go_down:
+                    continue
+                if link_types is not None \
+                and link.type.name not in link_types:
+                    continue
+                linked_issue = link.inwardIssue \
+                             if is_downlink \
+                             else link.outwardIssue
+                # check if target issue is already cached
+                cached_target = issue_index.get(linked_issue.key,
+                                               None)
+                if cached_target:
+                    node[1].append((cached_target, link_type))
+                    traversed_links.add(link.id)
+                    continue
+                if link.id in traversed_links:
+                    continue
+                traversed_links.add(link.id)
+                # populate all fields as link objects contain
+                # minimal issue objects
+                try:
+                    linked_issue = jira.issue(linked_issue.key)
+                except JIRAError, e:
+                    pr(u'%s - %s' % \
+                        (linked_issue.key, error_message(e)))
+                    continue
+
+                if project is not None \
+                and linked_issue.fields.project.id != project:
+                    continue
+
+                if is_downlink:
+                    downlink_queue.append(
+                        (issue, 'down',
+                         link.type.inward, linked_issue, depth + 1))
+                else:
+                    uplink_queue.append(
+                        (issue, 'up',
+                         link.type.inward, linked_issue, depth + 1))
+        else:
+            # link based queue processing
+            #
+            # only downlink nodes are processed here
+            parent_node = issue_index.get(parent_issue.key, None)
+            if parent_node is None:
+                pr('Error: broken index, missing %s' % parent_issue.key)
+                continue
+
+            # check if target issue is already cached
+            cached_issue = issue_index.get(issue.key, None)
+            if cached_issue:
+                parent_node[1].append((cached_issue, link_type))
+                continue
+
+            node = (issue, [])
+            issue_index[issue.key] = node
+            parent_node[1].append((node, link_type))
+
+            if maxdepth > 0 and depth == maxdepth:
+                continue
+
+            links = issue.fields.issuelinks
+            for link in links:
+                if link_types is not None \
+                and link.type.name not in link_types:
+                    continue
+                is_downlink = ('inwardIssue' in link.__dict__)
+                if not is_downlink and not go_up:
+                    continue
+                if is_downlink and not go_down:
+                    continue
+                linked_issue = link.inwardIssue \
+                             if is_downlink \
+                             else link.outwardIssue
+                # check if target issue is already cached
+                cached_target = issue_index.get(linked_issue.key,
+                                               None)
+                if cached_target:
+                    node[1].append((cached_target, link_type))
+                    traversed_links.add(link.id)
+                    continue
+                if link.id in traversed_links:
+                    continue
+                traversed_links.add(link.id)
+                # populate all fields as link objects contain
+                # minimal issue objects
+                try:
+                    linked_issue = jira.issue(linked_issue.key)
+                except JIRAError, e:
+                    pr(u'%s - %s' % \
+                        (linked_issue.key, error_message(e)))
+                    continue
+
+                if project is not None \
+                and linked_issue.fields.project.id != project:
+                    continue
+
+                if is_downlink:
+                    downlink_queue.append(
+                        (issue, 'down',
+                         link.type.inward, linked_issue, depth + 1))
+                else:
+                    uplink_queue.append(
+                        (issue, 'up',
+                         link.type.inward, linked_issue, depth + 1))
+
+    # now process one or more parent trees
+    if visit_parents:
+        while len(uplink_queue):
+            child_issue, direction, link_type, issue, depth = \
+                uplink_queue.pop(0)
+
+            progress_msg = '\rBuilding the tree: ' + issue.key
+            new_progress_msg_len = len(progress_msg)
+            progress_msg += ' ' * (\
+                (progress_msg_len - len(progress_msg)) \
+                if progress_msg_len - len(progress_msg) > 0 \
+                else 0)
+            progress_msg_len = new_progress_msg_len
+            pre(progress_msg, end='')
+            stderr.flush()
+
+            go_up = direction in ('up', 'both')
+            go_down = direction in ('down', 'both')
+
+            child_node = issue_index.get(child_issue.key, None)
+            if child_node is None:
+                pr('Error: broken index, missing %s' % child_issue.key)
+                continue
+
+            node = (issue, [(child_node, link_type),])
+            issue_index[issue.key] = node
+            head_index[issue.key] = node
+            if child_issue.key in head_index:
+                del head_index[child_issue.key]
+
+            if depth == maxdepth:
+                continue
+
+            links = issue.fields.issuelinks
+            for link in links:
+                if link_types is not None \
+                and link.type.name not in link_types:
+                    continue
+                is_downlink = ('inwardIssue' in link.__dict__)
+                if not is_downlink and not go_up:
+                    continue
+                if is_downlink and not go_down:
+                    continue
+                linked_issue = link.inwardIssue \
+                             if is_downlink \
+                             else link.outwardIssue
+                # check if target issue is already cached
+                cached_target = issue_index.get(linked_issue.key,
+                                               None)
+                if cached_target:
+                    node[1].append((cached_target, link_type))
+                    traversed_links.add(link.id)
+                    continue
+                if link.id in traversed_links:
+                    continue
+                traversed_links.add(link.id)
+                # populate all fields as link objects contain
+                # minimal issue objects
+                try:
+                    linked_issue = jira.issue(linked_issue.key)
+                except JIRAError, e:
+                    pr(u'%s - %s' % \
+                        (linked_issue.key, error_message(e)))
+                    continue
+                if not is_downlink:
+                    uplink_queue.append(
+                        (issue, 'up',
+                         link.type.inward, linked_issue, depth + 1))
+
+    # print trees
+    pre(u'\r' + (u' ' * progress_msg_len), end=u'\r')
+    for issue, node in head_index.iteritems():
+        print_tree_node(cfg, node)
+
+
+def print_tree_node(cfg, node, node_prefix='', child_prefix=''):
+    print_issue_oneliner(node[0], node_prefix)
+
+    last = len(node[1]) - 1
+    for idx, (child, link) in enumerate(node[1]):
+        if idx < last:
+            new_node_prefix = child_prefix + \
+                cfg.tree_chars[TREE_LINE_LC] + cfg.tree_chars[TREE_LINE_HL] + u'> ' + \
+                link + u' '
+            new_child_prefix = child_prefix + \
+                cfg.tree_chars[TREE_LINE_VL] + u' '
+        else:
+            new_node_prefix = child_prefix + \
+                cfg.tree_chars[TREE_LINE_BL] + cfg.tree_chars[TREE_LINE_HL] + u'> ' + \
+                link + u' '
+            new_child_prefix = child_prefix + u'  '
+        print_tree_node(cfg, child, new_node_prefix, new_child_prefix)
+
+def cmd_show_tree(cfg, args):
+    jira = get_jira(cfg)
+    issues = []
+    go_up = None
+    go_down = None
+    stick_to_the_project = False
+    in_error = False
+    for arg in args:
+        if arg.startswith('-'):
+            if arg.startswith('-d'):
+                cfg.depth = int(arg[2:])
+            elif arg.startswith('--depth='):
+                cfg.depth = int(arg[8:])
+            else:
+                pr(u'Unknown option: ' + arg)
+        else:
+            larg = arg.lower()
+            if larg in ('u', 'up'):
+                go_up = True
+            elif larg in ('d', 'do', 'dow', 'down'):
+                go_down = True
+            elif larg in ('b', 'bo', 'bot', 'both'):
+                go_up = True
+                go_down = True
+            elif larg in ('a', 'al', 'all'):
+                stick_to_the_project = False
+            elif larg in ('p', 'pr', 'prj', 'pro', 'proj', 'proje',
+                    'projec', 'project'):
+                stick_to_the_project = True
+            elif is_issue_id(arg):
+                issues.append(arg)
+            else:
+                pr('Invalid argument: ' + arg)
+                in_error = True
+
+    if go_up is None:
+        if go_down is None:
+            go_up = True
+            go_down = True
+        else:
+            go_up = False
+    else:
+        if go_down is None:
+            go_down = False
+    if not in_error:
+        for key in issues:
+            try:
+                issue = jira.issue(key)
+                print_issue_tree(cfg, jira, issue, None, cfg.depth, go_up,
+                                 go_down, stick_to_the_project)
+            except JIRAError, e:
+                pr(u'%s - %s' % (key, error_message(e)))
+                in_error = True
+
+    return 1 if in_error else 0
+
+def cmd_show_issue(cfg, args):
+    jira = get_jira(cfg)
+    show_body = False
+    show_links = False
+    show_comments = False
+    show_history = False
+    in_error = False
+    issues = []
+    for arg in args:
+        larg = arg.lower()
+        if larg in ('b', 'bo', 'bod', 'body'):
+            show_body = True
+        elif larg in ('l', 'li', 'lin', 'link', 'links'):
+            show_links = True
+        elif larg in ('c', 'co', 'com', 'comm', 'comme', 'commen',
+                      'comment', 'comments'):
+            show_comments = True
+        elif larg in ('h', 'hi', 'his', 'hist', 'histo', 'histor',
+                    'history'):
+            show_history = True
+        elif larg in ('a', 'al', 'all'):
+            show_body = True
+            show_links = True
+            show_comments = True
+            show_history = True
+        elif is_issue_id(arg):
+            issues.append(arg)
+        else:
+            pr('Invalid argument: ' + arg)
+            in_error = True
+
+    if not (show_body or show_links or show_comments or show_history):
+        show_body = True
+
+    if not in_error:
+        for key in issues:
+            try:
+                issue = jira.issue(
+                    key,
+                    expand=('changelog' if show_history else ''))
+                print_issue(cfg, issue, show_body, show_links,
+                            show_comments, show_history)
+            except JIRAError, e:
+                pr(u'%s - %s' % (key, error_message(e)))
+                in_error = True
+
+    return 1 if in_error else 0
+
+def cmd_open_issue(cfg, args):
+    browser = cfg.browser
+    in_error = False
+    for id in args:
+        if not is_issue_id(id):
+            pr('Invalid argument: ' + unicode(id))
+            in_error = True
+        if not in_error:
+            pr('Opening %s using %s...' % (id, browser))
+            url = cfg.server + '/browse/' + id
+            vargs = (browser, url)
+            subprocess.Popen(vargs, stdout=open('/dev/null', 'w'),
+                             stderr=subprocess.STDOUT)
+    return 1 if in_error else 0
+
+def cmd_show_help(cfg, args):
+    pr(
+u"""JIC v%s - JIRA CLI client for your convenience
+
+Allows using JIRA without a mouse and a massive web browser.
+
+
+Usage: jic <command> [<option> ...] [<arg> ...]
+
+where <arg> is one or more issue IDs delimited by a space
+
+and where command might be:
+
+    <no command specified>
+        is a synonym of "jic my"
+
+        Examples:
+            $ jic
+                to list issues assigned to me
+            $ jic my
+                as above
+            $ jic mine
+                as above
+            $ jic all
+                to list issues assigned to me and reported by me
+
+    my <options>
+        is a synonym to "jic list mine"
+
+    list [<type> ...] [<user> ...]
+        lists issues related to the users specified (if any), or the
+        user using the tool - if not
+
+        multiple users can be specified
+
+        type can be one of:
+            assigned - default
+            reported
+            all
+
+        Examples:
+            $ jic list my
+                to list issues assigned to me
+            $ jic list some.user@jira.domain
+                to list issues assigned to some.user@jira.domain
+            $ jic list reported some.user@jira.domain
+                to list issues reported by some.user@jira.domain
+
+    query [<JQL query>]
+        lists issues returned by the JIRA JQL query specified
+        if query is omitted, an editor is used to get it from the user
+
+        Examples:
+            $ jic query assigned='some.user@jira.com'
+                to list issues assigned to some.user@jira.com
+
+    show [c[omments]] [h[istory]] <issue IDs>
+        shows information about the issue; if comments and/or history is
+        requested, those will follow the basic information
+
+        if more then one issue ID is specified, output will contain
+        requested information for the corresponding cards in the order
+        of mentioning
+
+        Examples:
+            $ jic show CARD-410
+                shows basic information for the CARD-410
+            $ jic show history CARD-410
+                shows basic information and history for the CARD-410
+            $ jic show comments history CARD-410
+                shows basic information and history for the CARD-410
+            $ jic show c h CARD-410
+                shows basic information as well as history and comments
+                for the CARD-410
+
+    tree [-d<depth>] [<direction>] [<scope>] <issue IDs>
+        walks up and/or down the "implements" tree and lists issues
+
+        <depth> is defining the maximum depth of the tree being listed;
+        default is taken from the configuration or otherwise is
+        unlimited.
+
+        by default only issues with the same key as the one specified
+        will be listed; if additional keys are specified, issues with
+        those keys will be listed also
+
+        <direction> can be one of
+            both    - go both ways (default)
+            up      - towards parent issues
+            down    - towards child issues
+
+        <scope> can be one of
+            all     - traverse linked issues from all projects (default)
+            project - traverse only issues from the same project
+
+        if multiple issue IDs are specified, myltiple trees are printed
+
+        Examples:
+            $ jic tree project CARD-410
+                show both - parent and child nodes implemented or
+                implementing this issue as well as their respective
+                parents and children while only walking towards issues
+                with the key "CARD" (same project).
+            $ jic tree down CARD-410
+                show only children issues (those, which implement the
+                issue specified) and also include related issues from
+                other projects.
+
+    open <issue IDs>
+        opens one or more issues specified using the browser
+
+    oauth-dance
+        initiates process of getting OAuth token for the application
+
+        During the OAuth "dance" the application is requesting
+        an authorization to access JIRA on your behalf. The process
+        involves opening a confirmation page in a web browser and
+        getting a token + secret which should be saved into the
+        configuration file. Aftewards the password is not used anymore
+        and can be removed from the configuration file (if present).
+        User name is still needed and should not be removed.
+
+    help
+        shows this help
+
+    c[onfiguration]
+        edit jic configuration file using a text editor
+        this command is automatically executed when config file is
+        missing
+
+
+    comment <action> [<args>]
+
+        where action is:
+
+        add <issue IDs>
+            (default, performed if no action is specified)
+            add a comment to one or more issues
+            an editor is used to get the text of the comment from the
+            user; the same comment is added to all the issues listed
+
+            Examples:
+                $ jic comment add CARD-123
+                    to add a comment to the issue with the key CARD-123
+
+                $ jic comment CARD-123 CARD-124
+                    to add a comment to the issueis with keys CARD-123
+                    and CARD-124
+
+        edit <comment-key>
+            edit a comment by issue ID and comment ID
+
+            where <comment-key> is <issue ID>:<comment ID>
+
+            an editor is used to edit the text of the comment
+
+            Examples:
+                $ jic comment edit CARD-123:2356
+                    to edit a comment with ID 2356 of the issue with the
+                    key CARD-123
+
+        delete <comment-keys>
+            delete a comment by issue ID and comment ID
+
+            where <comment-key> is <issue ID>:<comment ID>
+            multiple comment keys can be specified
+
+            Examples:
+                $ jic comment delete CARD-123:2356
+                    to delete a comment with ID 2356 of the issue with
+                    the key CARD-123
+
+
+    transition <issue IDs>
+        transitions issues into the new state
+        an editor is used to list available states and get selection
+        from the user
+
+        Examples:
+            $ jic transition CARD-123
+                get a list of available next states for the CARD-123 and
+                select one using a text editor
+
+            $ jic transition CARD-123 CARD-124
+                get a list of available next states for the CARD-123 and
+                CARD-124 and select new state for each one using a text
+                editor
+
+
+Configuration variables:
+""" % __version__)
+
+    keys = sorted(Configuration.option_definitions.keys())
+    for key in keys:
+        value, secret, autogenerate, description = \
+            Configuration.option_definitions[key]
+        pr(u'    %s (default value: \'%s\')' % (
+            key, str(value).decode('utf-8')))
+        for line in description.splitlines():
+            pr(u'        %s' % line)
+        pr()
+
+    pr(
+u"""
+Feedback:
+
+    Please direct your feedback to
+        Serge Broslavsky <serge.broslavsky@linaro.org>
+""")
+
+    return 0
+
+def cmd_edit_config(cfg, args):
+    cfg.edit_file()
+
+    return 0
+
+def cmd_oauth_dance(cfg, args):
+
+    if not cfg.oauth_cert:
+        pr(u'Private key file is required for OAuth - please '\
+           u'point to it using oauth_cert option. Aborting.')
+        return 1
+
+    class RSA_SHA1_SignatureMethod(oauth.SignatureMethod):
+        cfg = None
+        name = 'RSA-SHA1'
+
+        def signing_base(self, request, consumer, token):
+
+            if not hasattr(request, 'normalized_url') \
+            or request.normalized_url is None:
+                raise ValueError("Request is missing the Base URL")
+
+            sig = (
+                oauth.escape(request.method),
+                oauth.escape(request.normalized_url),
+                oauth.escape(request.get_normalized_parameters()),
+            )
+
+            key = '%s&' % oauth.escape(consumer.secret)
+            if token:
+                key += oauth.escape(token.secret)
+            raw = '&'.join(sig)
+
+            return key, raw
+
+        def sign(self, request, consumer, token):
+
+            key, raw = self.signing_base(request, consumer, token)
+
+            pvt_key_body = RSA_SHA1_SignatureMethod.cfg.oauth_cert
+            pvt_key = keyfactory.parsePrivateKey(pvt_key_body)
+            signature = pvt_key.hashAndSign(raw)
+
+            return base64.b64encode(signature)
+
+    # class SignatureMethod_RSA_SHA1
+
+    RSA_SHA1_SignatureMethod.cfg = cfg
+
+    consumer_key = OAUTH_APPLICATION_KEY
+    consumer_secret = 'whatever'
+
+    request_token_url = \
+        '%s/plugins/servlet/oauth/request-token' % cfg.server
+    access_token_url = \
+        '%s/plugins/servlet/oauth/access-token' % cfg.server
+    authorize_url = \
+        '%s/plugins/servlet/oauth/authorize' % cfg.server
+
+    consumer = oauth.Consumer(consumer_key, consumer_secret)
+    client = oauth.Client(consumer)
+    client.set_signature_method(RSA_SHA1_SignatureMethod())
+
+    pr('Requesting token at %s' % request_token_url)
+    res, raw = client.request(request_token_url, "POST")
+    if res['status'] != '200':
+        raise Exception("Invalid response %s: %s" % (res['status'], raw))
+
+    req_token = dict(urlparse.parse_qsl(raw))
+
+    authorize_url += '?oauth_token=%s' % req_token['oauth_token']
+    pr('Opening authorization page using %s...' % cfg.browser)
+    vargs = (cfg.browser, authorize_url)
+    subprocess.Popen(vargs, stdout=open('/dev/null', 'w'),
+                     stderr=subprocess.STDOUT)
+    pr('Now please authorize this application in JIRA using the web '\
+       'page opened in %s.' % cfg.browser)
+    pr()
+
+    if not confirm(u'Have you performed authorization? (y/n)'):
+        exit(1)
+
+    token = oauth.Token(req_token['oauth_token'],
+        req_token['oauth_token_secret'])
+    client = oauth.Client(consumer, token)
+    client.set_signature_method(RSA_SHA1_SignatureMethod())
+
+    res, raw = client.request(access_token_url, "POST")
+    acc_token = dict(urlparse.parse_qsl(raw))
+
+    if 'oauth_problem' in acc_token:
+        pr('Could not get OAuth token: %s' % \
+            acc_token['oauth_problem'])
+    else:
+        pr('Now make sure that oauth_pair option in your %s has the '\
+           'following value:\n  oauth_pair = "%s:%s"' % (
+               cfg.config, acc_token['oauth_token'],
+               acc_token['oauth_token_secret']))
+        pr()
+
+    return 0
+
+def cmd_comment(cfg, args):
+    in_error = False
+    action = None
+    ids = []
+    for arg in args:
+        larg = arg.lower()
+        if larg in ('a', 'ad', 'add'):
+            if action:
+                pr(u'Can only perform one action at a time')
+                in_error = True
+            action = 'add'
+        elif larg in ('e', 'ed', 'edi', 'edit'):
+            if action:
+                pr(u'Can only perform one action at a time')
+                in_error = True
+            action = 'edit'
+        elif larg in ('d', 'de', 'del', 'dele', 'delet', 'delete'):
+            if action:
+                pr(u'Can only perform one action at a time')
+                in_error = True
+            action = 'delete'
+        elif is_comment_key(arg) or is_issue_id(arg):
+            ids.append(arg)
+        else:
+            pr('Invalid action: ' + arg)
+            in_error = True
+
+    if not action:
+        action = 'add'
+
+    if not ids:
+        pr(u'No ids provided')
+        in_error = True
+
+    if not in_error:
+        if action == 'add':
+            return cmd_comment_add(cfg, ids)
+        elif action == 'edit':
+            return cmd_comment_edit(cfg, ids)
+        elif action == 'delete':
+            return cmd_comment_delete(cfg, ids)
+        else:
+            in_error = True
+            pr(u'Unknown action: %s' % action)
+
+    return 1 if in_error else 0
+
+
+PROMPT_GET_COMMENT_TEXT = \
+u"""
+# Please enter your comment into this file.
+# This comment will be added to the following issues:
+#   %s
+# Leave the file intact to cancel the operation.
+# Lines starting with '#' are comments and will not be used.
+"""
+
+def cmd_comment_add(cfg, args):
+    jira = get_jira(cfg)
+    in_error = False
+    issues = []
+    for arg in args:
+        if is_comment_key(arg):
+            pr(u'Issue ids are required, comment key '\
+               u'is provided: %s' % arg)
+            in_error = True
+        elif is_issue_id(arg):
+            issues.append(arg)
+        else:
+            pr(u'Invalid argument: ' + arg)
+            in_error = True
+
+    if not in_error:
+        issues_list = ', '.join(issues)
+        text = get_from_editor(
+            cfg, PROMPT_GET_COMMENT_TEXT % issues_list)
+        if not text:
+            pr(u'Aborted by the user.')
+            return 0
+
+        text = text.decode('utf-8')
+        filtered = u''
+        for line in text.splitlines():
+            if line.startswith('#'):
+                continue
+            filtered += line + u'\n'
+        filtered = filtered.rstrip()
+
+        stripped = filtered.strip()
+        if not stripped:
+            pr(u'Not adding an empty comment.')
+            return 0
+
+        pr(u'The comment being added')
+        for line in filtered.splitlines():
+            pr(u'> %s' % line, )
+
+        for issue in issues:
+            pr(u'Adding to %s...'  % issue, end='')
+            try:
+                comment = jira.add_comment(issue, filtered)
+            except JIRAError, e:
+                pr(' %s - %s' % (issue, error_message(e)))
+                in_error = True
+            else:
+                pr(u' Done.')
+
+    return 1 if in_error else 0
+
+
+PROMPT_EDIT_COMMENT_TEXT = \
+u"""%s
+# Please edit your comment above.
+# This comment's key is: %s
+# Leave the file intact to cancel the operation.
+# Lines starting with '#' are comments and will not be used.
+"""
+
+def cmd_comment_edit(cfg, args):
+    jira = get_jira(cfg)
+    in_error = False
+    comment_key = None
+    for arg in args:
+        if is_comment_key(arg):
+            if comment_key:
+                pr(u'Only one comment can be edited at a time.\n'\
+                   u'Editing %s' % comment_key)
+            else:
+                comment_key = arg
+        elif is_issue_id(arg):
+            pr(u'Comment key is expected, card id is '\
+               u'provided: %s' % arg)
+            in_error = True
+        else:
+            pr(u'Invalid argument: ' + arg)
+            in_error = True
+
+    if ':' not in comment_key:
+        pr('Comment key\' format is <issue-id>:<comment-id>')
+        return 1
+
+    issue_id, comment_id = comment_key.split(':')
+    pr(u'Getting comment: %s...' % comment_key, end=u'')
+
+    try:
+        comment = jira.comment(issue_id, comment_id)
+    except JIRAError, e:
+        pr(error_message(e))
+        return 1
+
+    pr(u' Done.')
+
+    text = get_from_editor(
+        cfg, PROMPT_EDIT_COMMENT_TEXT % (comment.body, comment_key))
+    if not text:
+        pr(u'Aborted by the user.')
+        return 0
+
+    text = text.decode('utf-8')
+    filtered = u''
+    for line in text.splitlines():
+        if line.startswith('#'):
+            continue
+        filtered += line + u'\n'
+    filtered = filtered.rstrip()
+
+    stripped = filtered.strip()
+    if not stripped:
+        pr(u'Not replacing with an empty comment (use comment delete).')
+        return 0
+
+    pr(u'The comment %s is being replaced with:' % comment_key)
+    for line in filtered.splitlines():
+        pr(u'> %s' % line, )
+
+    pr(u'Replacing... ', end='')
+    try:
+        # Workaround replacing the line below (not yet implemented)
+        # comment.update(stripped)
+        data = { 'body': stripped }
+        super(Comment, comment).update(**data)
+        # End Of Workaround
+    except JIRAError, e:
+        pr(error_message(e))
+    else:
+        pr(u'Done.')
+
+    return 0
+
+
+PROMPT_DELETE_COMMENT_TEXT = \
+u"""Are you sure you would like to delete this comment.
+(type YES to delete, anything else to keep):"""
+
+def cmd_comment_delete(cfg, args):
+    jira = get_jira(cfg)
+    in_error = False
+    comment_keys = []
+    for arg in args:
+        if is_comment_key(arg):
+            comment_keys.append(arg)
+        elif is_issue_id(arg):
+            pr(u'Comment key is expected, card id is '\
+               u'provided: %s' % arg)
+            in_error = True
+        else:
+            pr(u'Invalid argument: ' + arg)
+            in_error = True
+
+    for comment_key in comment_keys:
+        if ':' not in comment_key:
+            pr('Comment key\' format is <issue-id>:<comment-id>')
+            in_error = True
+
+    if in_error:
+        return 1
+
+    for comment_key in comment_keys:
+        issue_id, comment_id = comment_key.split(':')
+        pr(u'Getting comment: %s...' % comment_key, end=u'')
+
+        try:
+            comment = jira.comment(issue_id, comment_id)
+        except JIRAError, e:
+            pr(u' %s' % error_message(e))
+            continue
+        else:
+            pr(u' Done.\n')
+
+            print_comment(cfg, comment)
+
+        response = ''
+
+        if not confirm(PROMPT_DELETE_COMMENT_TEXT, strict=True):
+            pr(u'\nKeeping the comment.')
+            return 1
+
+        pr(u'\nDeleting... ', end='')
+        try:
+            comment.delete()
+        except JIRAError, e:
+            pr(u' [%s:%s] - %s' % \
+                (issue_id, comment_id, error_message(e)))
+        else:
+            pr(u'Done.\n')
+
+    return 0
+
+
+def parse_ml(cfg, text):
+    result = []
+    issue = None
+    for line in text.splitlines():
+        field, skip, rest = line.partition(u':')
+        if field == u'Issue':
+            if result and not result[-1][1]:
+                del result[-1]
+            issue = rest.split()[0].strip()
+            result.append([issue, {}])
+        elif field == u'Status':
+            if not result:
+                pr(u'Issue should precede any other field. Aborting.')
+                return None
+            stat_id, skip, stat_name = rest.partition(u':')
+            stat_id = stat_id.strip()
+            stat_name = stat_name.strip()
+            result[-1][1][u'status'] = (stat_id, stat_name)
+        elif field == u'Resolution':
+            if not result:
+                pr(u'Issue should precede any other field. Aborting.')
+                return None
+            res_id, skip, res_name = rest.partition(u':')
+            res_id = res_id.strip()
+            res_name = res_name.strip()
+            result[-1][1][u'resolution'] = (res_id, res_name)
+        elif field == u'Summary':
+            if not result:
+                pr(u'Issue should precede any other field. Aborting.')
+                return None
+            result[-1][1][u'summary'] = rest.strip()
+        elif field == u'Comment':
+            if not result:
+                pr(u'Issue should precede any other field. Aborting.')
+                return None
+            result[-1][1][u'comment'] = rest.strip()
+    if result and not result[-1][1]:
+        del result[-1]
+
+    return result
+
+
+PROMPT_TRANSITION_TEXT = \
+u"""\
+# Please edit to this file to perform operations.
+# Leave the file intact to cancel the operation.
+# Lines starting with '#' are comments and will not be used.
+"""
+
+def cmd_transition(cfg, args):
+    jira = get_jira(cfg)
+    #pr(unicode(dir(jira)))
+    in_error = False
+    issues = []
+    state = None
+    for arg in args:
+        if is_issue_id(arg):
+            issues.append(arg)
+        else:
+            if not state:
+                state = arg
+            else:
+                pr('Invalid argument: ' + arg)
+                in_error = True
+
+    if not in_error:
+        resolutions = u''
+        for res in jira.resolutions():
+            resolutions += u'#Resolution: %s: %s\n' % \
+                            (res.id, res.name)
+        text = u''
+        for key in issues:
+            try:
+                issue = jira.issue(key)
+                text += u'Issue: %s\n' % issue.key
+                text += u'#Summary: %s\n' % issue.fields.summary
+                text += u'#Status: %s: %s\n' % \
+                        (issue.fields.status.id, issue.fields.status.name)
+                if issue.fields.resolution:
+                    text += u'#Resolution: %s: %s\n' % \
+                            (issue.fields.resolution.id, issue.fields.resolution.name)
+                text += u'\n'
+                for tr in jira.transitions(issue):
+                    text += u'# Transition to "%s" - uncomment the '\
+                            u'line below\n#Status: %s:%s\n' % \
+                                (tr['name'], tr['id'], tr['name'])
+                    if 'Resolve' in tr['name']:
+                        text += u'# Uncomment one of the resolutions below\n'
+                        text += resolutions
+                    #text += u'# Uncomment the following line and '\
+                    #        u'append some text to add a comment\n'\
+                    #        u'#Comment: \n'
+                    text += '\n'
+            except JIRAError, e:
+                pr(u'%s - %s' % (key, error_message(e)))
+            text += u'\n'
+        text += PROMPT_TRANSITION_TEXT
+
+    text = get_from_editor(cfg, text)
+
+    if not text:
+        pr(u'Aborted by the user.')
+        return 0
+
+    text = text.decode('utf-8')
+    filtered = u''
+    for line in text.splitlines():
+        if line.startswith('#'):
+            continue
+        filtered += line + u'\n'
+    filtered = filtered.rstrip()
+
+    jobs = parse_ml(cfg, filtered.strip())
+    if not jobs:
+        pr(u'Nothing to do.')
+        return 0
+
+    pr(u'About to perform the following changes:')
+    for issue_key, changes in jobs:
+        pr(u'Issue: %s' % issue_key)
+        for name in changes.keys():
+            value = changes[name]
+            if type(value) in (list, tuple):
+                pr(u'  %s = %s: %s' % (name, value[0], value[1]))
+            else:
+                pr(u'  %s = %s' % (name, value))
+
+    if confirm(u'Would you like to apply those changes?'):
+        for issue_key, changes in jobs:
+            issue = jira.issue(issue_key)
+            for name in changes.keys():
+                if name == 'status':
+                    try:
+                        fields_to_update = {}
+                        resolution = changes.get('resolution')
+                        if resolution:
+                            fields_to_update['resolution'] = \
+                                    {'id': resolution[0]}
+                        comment = changes.get('comment')
+                        if comment:
+                            fields_to_update['comment'] = comment
+
+                        jira.transition_issue(
+                            issue,
+                            changes['status'][0],
+                            **fields_to_update)
+                    except JIRAError, e:
+                        pr(u'%s - %s' % \
+                            (issue_key, unicode(e)))
+                        in_error = True
+
+    return 1 if in_error else 0
+
+
+commands = {
+    'm'             : cmd_list_issues,
+    'my'            : cmd_list_issues,
+    'l'             : cmd_list_issues,
+    'li'            : cmd_list_issues,
+    'ls'            : cmd_list_issues,
+    'lis'           : cmd_list_issues,
+    'lst'           : cmd_list_issues,
+    'list'          : cmd_list_issues,
+    'lin'           : cmd_list_links,
+    'ln'            : cmd_list_links,
+    'lnk'           : cmd_list_links,
+    'lnks'          : cmd_list_links,
+    'link'          : cmd_list_links,
+    'links'         : cmd_list_links,
+    's'             : cmd_show_issue,
+    'sh'            : cmd_show_issue,
+    'sho'           : cmd_show_issue,
+    'shw'           : cmd_show_issue,
+    'show'          : cmd_show_issue,
+    't'             : cmd_show_tree,
+    'tr'            : cmd_show_tree,
+    'tre'           : cmd_show_tree,
+    'tree'          : cmd_show_tree,
+    'o'             : cmd_open_issue,
+    'op'            : cmd_open_issue,
+    'ope'           : cmd_open_issue,
+    'opn'           : cmd_open_issue,
+    'open'          : cmd_open_issue,
+    'q'             : cmd_query_issues,
+    'qu'            : cmd_query_issues,
+    'que'           : cmd_query_issues,
+    'quer'          : cmd_query_issues,
+    'query'         : cmd_query_issues,
+    'h'             : cmd_show_help,
+    'he'            : cmd_show_help,
+    'hel'           : cmd_show_help,
+    'hlp'           : cmd_show_help,
+    'help'          : cmd_show_help,
+    'cf'            : cmd_edit_config,
+    'con'           : cmd_edit_config,
+    'cfg'           : cmd_edit_config,
+    'conf'          : cmd_edit_config,
+    'confi'         : cmd_edit_config,
+    'config'        : cmd_edit_config,
+    'configu'       : cmd_edit_config,
+    'configur'      : cmd_edit_config,
+    'configura'     : cmd_edit_config,
+    'configurat'    : cmd_edit_config,
+    'configurati'   : cmd_edit_config,
+    'configuratio'  : cmd_edit_config,
+    'configuration' : cmd_edit_config,
+    'oa'            : cmd_oauth_dance,
+    'od'            : cmd_oauth_dance,
+    'oau'           : cmd_oauth_dance,
+    'oaut'          : cmd_oauth_dance,
+    'oauth'         : cmd_oauth_dance,
+    'oauth-d'       : cmd_oauth_dance,
+    'oauth-da'      : cmd_oauth_dance,
+    'oauth-dan'     : cmd_oauth_dance,
+    'oauth-danc'    : cmd_oauth_dance,
+    'oauth-dance'   : cmd_oauth_dance,
+    'c'             : cmd_comment,
+    'co'            : cmd_comment,
+    'com'           : cmd_comment,
+    'comm'          : cmd_comment,
+    'comme'         : cmd_comment,
+    'commen'        : cmd_comment,
+    'comment'       : cmd_comment,
+    'tr'            : cmd_transition,
+    'tra'           : cmd_transition,
+    'tran'          : cmd_transition,
+    'trans'         : cmd_transition,
+    'transi'        : cmd_transition,
+    'transit'       : cmd_transition,
+    'transiti'      : cmd_transition,
+    'transitio'     : cmd_transition,
+    'transition'    : cmd_transition,
+}
+
+jira = None
+
+def get_jira(cfg):
+    global jira
+    if jira is None:
+        if cfg.oauth_pair:
+            if not cfg.oauth_cert:
+                pr(u'oauth_cert configuration option myst be set for '\
+                   u'OAuth based JIRA access to work. Aborting')
+                exit(1)
+            options = { 'server': cfg.server, 'verify': False }
+
+            token, secret = cfg.oauth_pair.split(':')
+            oauth_auth = {
+                'access_token': token,
+                'access_token_secret': secret,
+                'consumer_key': 'jic-tool',
+                'key_cert': cfg.oauth_cert
+            }
+            jira = JIRA(options=options, oauth=oauth_auth)
+        else:
+            options = { 'server': cfg.server, 'verify': False }
+            if cfg.user:
+                auth = (cfg.user, cfg.password)
+                #if cfg.password is None:
+                    #pr(u'\nPassword not provided. Aborting.')
+                    #exit(1)
+                jira = JIRA(options=options, basic_auth=auth)
+            else:
+                jira = JIRA(options=options)
+    return jira
+
+def main():
+    args = argv
+    if len(args) > 1 and args[1].lower() == '--help':
+        cfg = Configuration()
+        cmd_show_help(cfg, args[2:])
+        exit(0)
+
+    cfg = Configuration()
+    if not cfg.file_exists():
+        cfg.generate_file()
+        pr(u'New config file generated at %s - please edit.' % \
+            DEFAULT_CONFIG_FILE)
+        cfg.edit_file()
+        return 1
+    else:
+        cfg.read_from_file()
+
+    if len(args) == 1:
+        args = (args[0], 'my')
+
+    signal(SIGINT, ctrl_c_handler)
+    cmd_name = args[1]
+    cmd = commands.get(cmd_name, None)
+    if cmd is None:
+        # assuming it's a view command
+        cmd = commands.get('show', None)
+        if cmd is not None:
+            exit(cmd(cfg, args[1:]))
+        else:
+            pr(u'Unknown command: ' + cmd_name)
+    else:
+        exit(cmd(cfg, args[2:]))
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,72 @@
+                         JIC - JIRA CLI Client
+
+MOTIVATION
+----------
+
+To get a tool that is easy to use for us, keyboard junkies.
+
+git CLI is used as a main source of ideas so JIC should not have a steep
+learning curve for anyone who's already git-enabled. :)
+
+
+SOURCES
+-------
+
+JIC sources are hosted at Linaro git server:
+
+    https://github.com/ototo/jic
+
+To clone the repo use:
+
+    https://github.com/ototo/jic
+
+
+VERSIONING
+----------
+
+Version number is date-based and is:
+
+    YY.WK.REV
+
+where
+
+    YY -    is last two digits of the current year
+    WK -    is the current week's number
+    REV -   (optional) is a bugfixing increment
+
+
+CONTRIBUTING
+------------
+
+Please send your feedback (any kind of it) and/or patches to Serge
+Broslavsky. He will be happy to get them.
+
+
+AUTHORS
+-------
+
+1. Serge Broslavsky <serge.broslavsky@linaro.org>
+    Main idea, design, initial implementation.
+2. Amit Kucheria <amit.kucheria@linaro.org>
+    Documentation and program output fixes.
+
+
+LICENSE
+-------
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, version 2 of the License.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program. If not, see <http://www.gnu.org/licenses/>.
+
+Documentation and all the artwork or this program is distributed under
+Creative Commons Attribution-ShareAlike (CC BY-SA) license (unless it's
+stated otherwise for a particular product). You should have received a
+copy of that license. If not, see <http://creativecommons.org/licenses/>.

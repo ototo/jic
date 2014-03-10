@@ -1,0 +1,95 @@
+THINGS TO IMPLEMENT
+-------------------
+
+This file contains ideas that might get implemented. It is used as a
+tracker for the state.
+
+    legend:
+    [ ] - to be done
+    [~] - in progress
+    [+] - implemented
+    [#] - fixed bug
+    [?] - not sure if needed
+    [-] - will not implement
+    [i] - note for implementation
+
+[+] OAuth support
+    [+] Implement OAuth authentication
+    [+] Implement OAuth dance
+
+[+] Configuration file support
+    [+] Implement basic config file support
+    [+] Implement python config file
+
+[+] List my issues (assigned, reported or both)
+    [#] Bug: sometimes JIRA is complaining about '%' symbol.
+        [i] No need to escape quotes in command line anymore.
+
+[+] List others' issues (assigned, reported or both)
+    [#] Bug: sometimes JIRA is complaining about '%' symbol.
+        [i] No need to escape quotes in command line anymore.
+
+[~] Show an issue (details and comments)
+    [+] Basic functionality
+    [+] Show comments
+    [ ] Handle custom fields properly
+    [ ] Use formatting that is suitable for editing/parsing
+
+[+] Show isues history
+    [+] Show history as JIRA represents it (no diff)
+    [+] Show history with proper diff formatting
+
+[+] Show issue's links (up and down the hierarchy)
+    [#] Bug: repeated subtrees are not always drawn for 'tree' command.
+        [i] bug i sfixed so the feature is released.
+
+[+] Arbitrary JQL query
+    [#] Bug: sometimes JIRA is complaining about '%' symbol.
+        [i] No need to escape quotes in command line anymore.
+
+[+] Add issue comment
+
+[+] Edit issue comment
+    [i] comment is referenced by issue key and comment id
+        (e.g. 'CARD-123:2374')
+
+[+] Delete issue comment
+    [i] comment is referenced by issue key and comment id
+        (e.g. 'CARD-123:2374')
+
+[+] Change issue state / transition an issue
+
+[ ] Change a text field (e.g. Engineering Update)
+    [i] Optionally also add a comment
+    [ ] Add support for user defined fields
+    [ ] Add text field editing feature
+
+[ ] Create/edit an issue
+    [i] Take assignee from the parent issue
+    [i] Assign new issue to the author by default
+    [ ] Add proper issue type support
+    [ ] Add issue templating support
+    [ ] Add the option to get field values from the parent issue
+    [ ] Add issue editing support
+    [ ] Add issue creation support
+
+[ ] Bulk create/edit of issues
+    [i] A-la interactive 'git add' + issue editing in an editor
+    [ ] Add support for staging (uncommitted changes)
+    [ ] Add support for bulk operations
+    [ ] Add support for diffing
+
+[?] Scripted operations
+    [i] e.g. creating an Engineering Card according to the template if
+        missing when creating a Blueprint
+
+[?] Offline mode support
+    [ ] Add revision history support
+    [ ] Add 'fetch' operation
+    [ ] Add 'list' operation
+    [ ] Add 'show' operation
+    [ ] Add 'diff' operation
+    [ ] Add 'commit' operation
+    [ ] Add 'push' operation
+    [ ] Add 'merge' operation
+

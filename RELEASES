@@ -1,0 +1,133 @@
+This file contains information about releases of JIC.
+
+Legend:
+[+] new complete feature
+[~] new feature that is not yet complete
+[#] bugfix
+[!] known bug
+[i] information
+
+
+v13.41.3 (2013-10-09)
+---------------------
+
+[#] Fixed documentation and program output.
+    [i] Thanks to Amit Kucheria!
+
+[#] Fixed oauth-dance when oauth_pair option is not set
+
+
+
+v13.41.2 (2013-10-08)
+---------------------
+
+[#] Proper error reporting
+
+[#] Proper short commands for configuration/comment
+
+[#] Proper history reporting for deleted comments
+
+[#] Intallation instructions updated according to the feedback
+
+
+
+v13.41.1 (2010-10-07)
+---------------------
+
+[+] Add issue comment
+
+[+] Edit issue comment
+    [i] comment is referenced by issue key and comment id
+        (e.g. 'CARD-123:2374')
+
+[+] Delete issue comment
+    [i] comment is referenced by issue key and comment id
+        (e.g. 'CARD-123:2374')
+
+[+] Change issue state / transition an issue
+
+[#] Show only reported issues when requested
+    [i] Was showing both - reported and assigned
+
+
+
+v13.40.1 (2013-10-01)
+---------------------
+
+[+] OAuth support
+    [+] Implement OAuth authentication
+    [+] Implement OAuth 'dance' to get the token
+    [i] New command: oauth-dance
+    [i] New options: oauth_pair, oauth_cert
+
+
+
+v13.38.1 (2013-09-18)
+---------------------
+
+[+] Show issue's links as a tree (up and down the hierarchy)
+    [+] Symbols used for tree lines and arrows are configurable.
+    [#] Bug: repeated subtrees are not always drawn for 'tree' command.
+        [i] bug i sfixed so the feature is released.
+
+
+
+v13.37.2 (2013-09-15)
+---------------------
+
+Bugfixing and new features:
+
+[+] New configuration file format - Python
+    Enables addition of more configurable options with complex structure
+    (e.g. lists, dictionaries, etc), which are needed for the future
+    features.
+
+[#] Documentation fixes
+    Corrected help text (typos, wording).
+
+[#] Bug: sometimes JIRA is complaining about '%' symbol in queries.
+    [i] Root cause: JIRA requires certain symbols (e.g. '.', '@') to be
+        quoted in JQL queries and shell is removing quotes unless those
+        are escaped (which is inconvenient).
+    [i] No need to escape quotes in command line anymore - now quotes
+        are added automatically if not specified by the user.
+
+[+] More issue types are supported
+    [i] Bug 'BUG' and New feature 'FEA' are added.
+
+[#] Some code cleanup.
+
+
+
+v13.37.1 (2013-09-11)
+---------------------
+
+First read-only release with the following features on-board:
+
+[+] 'my' command
+    Shows user's assigned and/or reported issue.
+
+[+] 'list' command
+    Lists issues related to the iJIRA users specified (if any), or the
+    user using the tool - if not.
+
+[+] 'query' command
+    Lists issues returned by the JIRA JQL query specified.
+
+[+] 'show' command
+    Shows information about the issue; if comments and/or history is
+    requested, those will follow the basic information.
+
+[+] 'open' command
+    Opens one or more issues specified using the browser.
+
+[+] 'help' command
+    Shows help.
+
+[+] 'configuration' command
+    Edit jic configuration file using a text editor this command is
+    automatically executed when config file is missing.
+
+[~] 'tree' command
+    Shows tree of the issues (all shildren and patch to the topmost
+    parent). Usage is: jic tree <issue-id>
