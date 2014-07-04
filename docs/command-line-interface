@@ -56,6 +56,27 @@ The structure of command line corresponds to the commonly used one:
 
                     <missing>   equals to "issue" subject of action
 
+                    "comment"   for dealing with comments
+
+                        <command> being one of:
+
+                            "add"       for adding a new comment
+                            "delete"    for deleting an existing comment
+                            "edit"      for editing an existing comment
+                            "reply"     for replying to an existing
+                                        comment (the quoted text is
+                                        inserted for editing)
+                            "show"      shows comments as requested
+
+                    "configuration" for dealing with configuration settings
+
+                        <command> being one of:
+
+                            "set"       for setting configuration values
+                            "show"      for showing configuration values
+                            "unset"     for resetting configuration
+                                        values to their default values
+
                     "issue"     for dealing with issues; the default
                                 subject of action
 
@@ -90,18 +111,6 @@ The structure of command line corresponds to the commonly used one:
                             "unlink"    for unlinking the issue from
                                         another ones
 
-                    "comment"   for dealing with comments
-
-                        <command> being one of:
-
-                            "add"       for adding a new comment
-                            "delete"    for deleting an existing comment
-                            "edit"      for editing an existing comment
-                            "reply"     for replying to an existing
-                                        comment (the quoted text is
-                                        inserted for editing)
-                            "show"      shows comments as requested
-
                     "link"      for dealing with links
 
                         <command> being one of:
@@ -111,34 +120,6 @@ The structure of command line corresponds to the commonly used one:
                             "delete"    for deleting links between
                                         issues
                             "list"      for listing links for issues
-
-                    "report"    for dealing with reports
-
-                        <command> being one of:
-
-                            "create"    for creating a report definition
-                            "delete"    for deleting a report definition
-                            "edit"      for editing a report definition
-                            "generate"  for generating a report
-
-                    "template"  for managing templates
-
-                        <command> being one of:
-
-                            "create"    for creating a template
-                            "delete"    for deleting a template
-                            "edit"      for editing a template
-
-                    "server"    for managing servers
-
-                        <command> being one of:
-
-                            "add"       for adding a server
-                            "dance"     for performing an oauth-dance
-                            "delete"    for deleting a server definition
-                            "edit"      for editing a server definition
-                            "list"      for listing known servers
-                            "show"      for showing a server definition
 
                     "list"      for dealing with issue lists
 
@@ -157,20 +138,160 @@ The structure of command line corresponds to the commonly used one:
                             "show"      for showing the issues from
                                         issue lists
 
-
-                    "configuration" for dealing with configuration settings
+                    "report"    for dealing with reports
 
                         <command> being one of:
 
-                            "set"       for setting configuration values
-                            "show"      for showing configuration values
-                            "unset"     for resetting configuration
-                                        values to their default values
+                            "create"    for creating a report definition
+                            "delete"    for deleting a report definition
+                            "edit"      for editing a report definition
+                            "generate"  for generating a report
+                            "list"      for listing reports
+
+                    "server"    for managing servers
+
+                        <command> being one of:
+
+                            "add"       for adding a server
+                            "dance"     for performing an oauth-dance
+                            "delete"    for deleting a server definition
+                            "edit"      for editing a server definition
+                            "list"      for listing known servers
+                            "show"      for showing a server definition
+
+                    "template"  for managing templates
+
+                        <command> being one of:
+
+                            "create"    for creating a template
+                            "delete"    for deleting a template
+                            "edit"      for editing a template
+                            "list"      for listing templates
+                            "show"      for showing templates
+
+                    "worklog"   for managing work logs
+
+                        <command> being one of:
+
+                            "add"       for adding an entry
+                            "delete"    for deleting an entry
+                            "edit"      for editing an entry
+                            "list"      for listing entries
+                            "show"      for showing entries
 
 
-2.1. ISSUE COMMANDS
+2.1. COMMENT COMMANDS
 
-    2.1.1. CLONE
+    2.1.1. ADD
+
+        TODO: document
+
+        Examples:
+
+            # add a comment using an editor
+            $ jic comment add -e CARD-100
+
+            # add a comment using pipes
+            $ echo "This takes ~ 1 second" | jic comment add CARD-100
+
+            # add the same comment to a couple of issues
+            $ jic comment add CARD-100 CARD-101 <<EOF
+            This is a multi-line comment.
+            It eats up your stack when you are sleeping.
+            EOF
+
+            # get the last comment from one issue with an additional
+            # line appended to it into another issues comment
+            # please note that the comment retrieval operation is done
+            # in offline mode ("-O") to get a predictable result
+            $ ( jic show -O -p comments -R "-1" -r CARD-100 ; \
+                echo -e "\n\nThis is the additional line!" ) | \
+                jic comment add CARD-101
+
+
+    2.1.2. DELETE
+
+        TODO: document
+
+        Examples:
+
+            # delete the last comment of the issue
+            $ jic comment delete -R -1 CARD-101
+
+            # delete specific card comment
+            $ jic comment delete CARD-101:2345
+
+            # delete three comments from two issues
+            $ jic comment delete CARD-100:123 CARD-101:2345,2346
+
+
+    2.1.3. EDIT
+
+        TODO: document
+
+        Examples:
+
+            # edit the last comment of the issue using an editor
+            $ jic comment edit -e -R -1 CARD-100
+
+            # edit a specific comment using pipes and sed!
+            $ jic comment show -r CARD-101:2345 | \
+                sed s/bad/good/ | \
+                jic comment edit CARD-101:2345
+
+
+    2.1.4. REPLY
+
+        TODO: document
+
+        Examples:
+
+            # reply to the last comment using editor
+            $ jic comment reply -e -R -1 CARD-100
+
+            # reply to the last comment using pipes
+            # the input provided is appended to the quoted text of the
+            # comment being replied to
+            $ echo -e "\nI like that cute embedded nonsense hack!" | \
+                jic comment reply CARD-100:2345
+
+
+    2.1.5. SHOW
+
+        TODO: document
+
+        Examples:
+
+            # show the last three comments of the issue
+            $ jic comment show -R -3- CARD-100
+
+            # show specific comments by their IDs
+            $ jic comment show CARD-100:2345,2346
+
+            # show the last user's comment
+            $ jic comment show -f "author=$me" -R -1 CARD-100
+
+
+2.2. CONFIGURATION COMMANDS
+
+    2.2.1. SET
+
+        TODO: document
+
+
+    2.2.2. SHOW
+
+        TODO: document
+
+
+    2.2.3. UNSET
+
+        TODO: document
+
+
+2.3. ISSUE COMMANDS
+
+    2.3.1. CLONE
 
         TODO: document
 
@@ -186,7 +307,7 @@ The structure of command line corresponds to the commonly used one:
             $ echo "New component" | jic clone -F Component CARD-101
 
 
-    2.1.2. CREATE
+    2.3.2. CREATE
 
     $ jic [issue] create <options> [<issue_key_list>]
 
@@ -389,7 +510,7 @@ The structure of command line corresponds to the commonly used one:
                 -d CARD-100 -D 1 -T Sub-task -L implements -F Summary
 
 
-    2.1.3. DELETE
+    2.3.3. DELETE
 
         TODO: document
 
@@ -406,7 +527,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic delete -k < massacre-victims
 
 
-    2.1.4. EDIT
+    2.3.4. EDIT
 
     $ jic edit <options> [<issue_key_list>]
 
@@ -576,7 +697,7 @@ The structure of command line corresponds to the commonly used one:
                 jic edit -F "FixVersion/s" CARD-100 CARD-101
 
 
-    2.1.5. FETCH
+    2.3.5. FETCH
 
         TODO: document
 
@@ -594,7 +715,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic fetch --self --down CARD-100,CARD-101 -L implements
 
 
-    2.1.6. FIELDS
+    2.3.6. FIELDS
 
         TODO: document
 
@@ -604,7 +725,7 @@ The structure of command line corresponds to the commonly used one:
         $ jic issue fields CARD-100
 
 
-    2.1.7. FORGET
+    2.3.7. FORGET
 
         TODO: document
 
@@ -618,7 +739,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic issue forget -D CARD-100 -L implements
 
 
-    2.1.8. LIST
+    2.3.8. LIST
 
     $ jic list <options> [<issue_key_list>]
 
@@ -691,7 +812,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic issue list -f "assignee=$me" -f "reporter=$me"
 
 
-    2.1.9. LINK
+    2.3.9. LINK
 
         TODO: document
 
@@ -701,12 +822,12 @@ The structure of command line corresponds to the commonly used one:
             $ jic link
 
 
-    2.1.10. MOVE
+    2.3.10. MOVE
 
         TODO: document
 
 
-    2.1.11. PULL
+    2.3.11. PULL
 
         TODO: document
 
@@ -717,7 +838,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic pull
 
 
-    2.1.12. PUSH
+    2.3.12. PUSH
 
         TODO: document
 
@@ -738,7 +859,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic issue push CARD-100:1,2,5 CARD-101:2-4
 
 
-    2.1.13. REVERT
+    2.3.13. REVERT
 
         TODO: document
 
@@ -751,7 +872,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic issue revert CARD-101
 
 
-    2.1.14. SHOW
+    2.3.14. SHOW
 
     $ jic show <options> [<issue_key> [...]]
 
@@ -806,7 +927,7 @@ The structure of command line corresponds to the commonly used one:
                 the issue specified is not processed
 
 
-    2.1.15. TRANSITION
+    2.3.15. TRANSITION
 
         TODO: document
 
@@ -824,7 +945,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic transition -D CARD-100 -H 1 -e
 
 
-    2.1.16. TREE
+    2.3.16. TREE
 
     $ jic tree <options> [<issue_key_list>]
 
@@ -888,106 +1009,14 @@ The structure of command line corresponds to the commonly used one:
             $ jic tree -a CARD-100
 
 
-    2.1.17. UNLINK
+    2.3.17. UNLINK
 
         TODO: document
 
 
-2.2. COMMENT COMMANDS
+2.4. LINK COMMANDS
 
-    2.2.1. ADD
-
-        TODO: document
-
-        Examples:
-
-            # add a comment using an editor
-            $ jic comment add -e CARD-100
-
-            # add a comment using pipes
-            $ echo "This takes ~ 1 second" | jic comment add CARD-100
-
-            # add the same comment to a couple of issues
-            $ jic comment add CARD-100 CARD-101 <<EOF
-            This is a multi-line comment.
-            It eats up your stack when you are sleeping.
-            EOF
-
-            # get the last comment from one issue with an additional
-            # line appended to it into another issues comment
-            # please note that the comment retrieval operation is done
-            # in offline mode ("-O") to get a predictable result
-            $ ( jic show -O -p comments -R "-1" -r CARD-100 ; \
-                echo -e "\n\nThis is the additional line!" ) | \
-                jic comment add CARD-101
-
-
-    2.2.2. DELETE
-
-        TODO: document
-
-        Examples:
-
-            # delete the last comment of the issue
-            $ jic comment delete -R -1 CARD-101
-
-            # delete specific card comment
-            $ jic comment delete CARD-101:2345
-
-            # delete three comments from two issues
-            $ jic comment delete CARD-100:123 CARD-101:2345,2346
-
-
-    2.2.3. EDIT
-
-        TODO: document
-
-        Examples:
-
-            # edit the last comment of the issue using an editor
-            $ jic comment edit -e -R -1 CARD-100
-
-            # edit a specific comment using pipes and sed!
-            $ jic comment show -r CARD-101:2345 | \
-                sed s/bad/good/ | \
-                jic comment edit CARD-101:2345
-
-
-    2.2.4. REPLY
-
-        TODO: document
-
-        Examples:
-
-            # reply to the last comment using editor
-            $ jic comment reply -e -R -1 CARD-100
-
-            # reply to the last comment using pipes
-            # the input provided is appended to the quoted text of the
-            # comment being replied to
-            $ echo -e "\nI like that cute embedded nonsense hack!" | \
-                jic comment reply CARD-100:2345
-
-
-    2.2.5. SHOW
-
-        TODO: document
-
-        Examples:
-
-            # show the last three comments of the issue
-            $ jic comment show -R -3- CARD-100
-
-            # show specific comments by their IDs
-            $ jic comment show CARD-100:2345,2346
-
-            # show the last user's comment
-            $ jic comment show -f "author=$me" -R -1 CARD-100
-
-
-2.3. LINK COMMANDS
-
-    2.3.1. CREATE
+    2.4.1. CREATE
 
         TODO: document
 
@@ -1002,7 +1031,7 @@ The structure of command line corresponds to the commonly used one:
                 CARD-101,CARD-102,CARD-103 CARD-100
 
 
-    2.3.2. DELETE
+    2.4.2. DELETE
 
         TODO: document
 
@@ -1020,7 +1049,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic link delete --up -L depends CARD-101
 
 
-    2.3.3. LIST
+    2.4.3. LIST
 
         TODO: document
 
@@ -1033,114 +1062,9 @@ The structure of command line corresponds to the commonly used one:
             $ jic link list -u CARD-100
 
 
-2.4. REPORT COMMANDS
+2.5. LIST COMMANDS
 
-    2.4.1. CREATE
-
-        TODO: document
-
-
-    2.4.2. DELETE
-
-        TODO: document
-
-
-    2.4.3. EDIT
-
-        TODO: document
-
-
-    2.4.4. GENERATE
-
-        TODO: document
-
-
-2.5. TEMPLATE
-
-    2.5.1. CREATE
-
-        TODO: document
-
-
-    2.5.2. DELETE
-
-        TODO: document
-
-
-    2.5.3. EDIT
-
-        TODO: document
-
-
-2.6. SERVER COMMANDS
-
-    2.6.1. ADD
-
-        TODO: document
-
-        Examples:
-
-            # add a server named "ServerName"
-            $ jic server add ServerName https://server.url user@server.url
-
-
-    2.6.2. DANCE
-
-        TODO: document
-
-        Examples:
-
-            # perform the OAuth dance for the server
-            $ jic server dance ServerName
-
-
-    2.6.3. DELETE
-
-        TODO: document
-
-            # delete a server named "ServerName" from the list of known
-            $ jic server delete ServerName
-
-
-    2.6.4. EDIT
-
-        TODO: document
-
-        Examples:
-
-            # edit server information using an editor
-            $ jic server edit -e ServerName
-
-            # edit the server using pipes
-            $ jic server edit ServerName <<EOF
-            http://new.url
-            user@new.url
-            EOF
-
-
-    2.6.5. LIST
-
-        TODO: document
-
-        Examples:
-
-            # list known servers
-            $ jic server list
-
-
-    2.6.6. SHOW
-
-        TODO: document
-
-        Examples:
-
-            # show server information
-            $ jic server show ServerName
-
-
-2.7. LIST COMMANDS
-
-    2.7.1. ADD
+    2.5.1. ADD
 
         TODO: document
 
@@ -1178,7 +1102,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic add MyList -e
 
 
-    2.7.2. CREATE
+    2.5.2. CREATE
 
         TODO: document
 
@@ -1188,7 +1112,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list create MyList
 
 
-    2.7.3. DELETE
+    2.5.3. DELETE
 
         TODO: document
 
@@ -1198,7 +1122,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list delete MyList
 
 
-    2.7.4. EDIT
+    2.5.4. EDIT
 
         TODO: document
 
@@ -1212,7 +1136,7 @@ The structure of command line corresponds to the commonly used one:
                 jic list edit CARD-100
 
 
-    2.7.5. LIST
+    2.5.5. LIST
 
         TODO: document
 
@@ -1225,7 +1149,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list list CARD-100 CARD-101
 
 
-    2.7.6. RECEIVE
+    2.5.6. RECEIVE
 
         TODO: document
 
@@ -1235,7 +1159,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list receive << file_that_was_sent
 
 
-    2.7.7. REMOVE
+    2.5.7. REMOVE
 
         TODO: document
 
@@ -1245,7 +1169,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list remove CARD-100 CARD-101
 
 
-    2.7.8. SEND
+    2.5.8. SEND
 
         TODO: document
 
@@ -1255,7 +1179,7 @@ The structure of command line corresponds to the commonly used one:
             $ jic list send MyList | sendmail someone.else@host
 
 
-    2.7.9. SHOW
+    2.5.9. SHOW
 
         TODO: document
 
@@ -1271,22 +1195,114 @@ The structure of command line corresponds to the commonly used one:
             # in the list
             $ jic list show -d CARD-100
 
+2.6. REPORT COMMANDS
 
-2.8. CONFIGURATION COMMANDS
-
-    2.8.1. SET
-
-        TODO: document
-
-
-    2.8.2. SHOW
+    2.6.1. CREATE
 
         TODO: document
 
 
-    2.8.3. UNSET
+    2.6.2. DELETE
 
         TODO: document
+
+
+    2.6.3. EDIT
+
+        TODO: document
+
+
+    2.6.4. GENERATE
+
+        TODO: document
+
+    2.6.5. LIST
+
+        TODO: document
+
+
+2.7. SERVER COMMANDS
+
+    2.7.1. ADD
+
+        TODO: document
+
+        Examples:
+
+            # add a server named "ServerName"
+            $ jic server add ServerName https://server.url user@server.url
+
+
+    2.7.2. DANCE
+
+        TODO: document
+
+        Examples:
+
+            # perform the OAuth dance for the server
+            $ jic server dance ServerName
+
+
+    2.7.3. DELETE
+
+        TODO: document
+
+            # delete a server named "ServerName" from the list of known
+            $ jic server delete ServerName
+
+
+    2.7.4. EDIT
+
+        TODO: document
+
+        Examples:
+
+            # edit server information using an editor
+            $ jic server edit -e ServerName
+
+            # edit the server using pipes
+            $ jic server edit ServerName <<EOF
+            http://new.url
+            user@new.url
+            EOF
+
+
+    2.7.5. LIST
+
+        TODO: document
+
+        Examples:
+
+            # list known servers
+            $ jic server list
+
+
+    2.7.6. SHOW
+
+        TODO: document
+
+        Examples:
+
+            # show server information
+            $ jic server show ServerName
+
+
+2.8. TEMPLATE
+
+    2.8.1. CREATE
+
+        TODO: document
+
+
+    2.8.2. DELETE
+
+        TODO: document
+
+
+    2.8.3. EDIT
+
+        TODO: document
+
 
 
 3. OPTIONS
@@ -1417,6 +1433,11 @@ The structure of command line corresponds to the commonly used one:
         provide one or more link types (as a comma-separated list) to
         work with; specifics of semantics of this option depend on the
         specific subject of action and an action - see those for details
+
+    -m <message>
+    --message <message>
+        provide a message that would be expected from the stdin
+        otherwise; new lines can be added using "\n"
 
     -o
     --online
