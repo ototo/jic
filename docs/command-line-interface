@@ -43,22 +43,24 @@ This document describes such a CLI.
 
 The structure of command line corresponds to the commonly used one:
 
-    $ jic <options> [<subject_of_action>] [<command> [<args> ...]]
+    $ jic <switches> [<subject_of_action>] [<command> [<args> ...]]
 
         where:
 
-            <options>
+            <switches>
                 are listed in a separate OPTIONS as well as for each
                 command further below
 
             <subject_of_action>
-                is one of the following:
+                is one of the following (unambiguous shortened versions
+                are also accepted):
 
                     <missing>   equals to "issue" subject of action
 
                     "comment"   for dealing with comments
 
-                        <command> being one of:
+                        <command> being one of (non-ambiguous shortened
+                                  versions are also accepted):
 
                             "add"       for adding a new comment
                             "delete"    for deleting an existing comment
@@ -72,18 +74,17 @@ The structure of command line corresponds to the commonly used one:
 
                         <command> being one of:
 
+                            "list"      for listing configuration values
                             "set"       for setting configuration values
                             "show"      for showing configuration values
                             "unset"     for resetting configuration
                                         values to their default values
 
-                    "issue"     for dealing with issues; the default
-                                subject of action
+                    "issue"     for dealing with issues;
+                                this is a default subject of action that
+                                is assumed when omitted
 
-                        <command> being one of (non-ambiguous shorter
-                                  versions are also accepted):
-
-                            TODO: add time log support
+                        <command> being one of:
 
                             "clone"     for cloning issues
                             "create"    for creating new issues
@@ -105,6 +106,9 @@ The structure of command line corresponds to the commonly used one:
                             "revert"    for reverting one or more
                                         changes made to issues
                             "show"      for showing the issue
+                            "status"    for showing the status of the
+                                        issue (has it been modified
+                                        locally and how if so)
                             "transition" for transitioning issues
                                         into JIRA workflow states
                             "tree"      for showing the issue hierarchy
@@ -153,10 +157,11 @@ The structure of command line corresponds to the commonly used one:
                         <command> being one of:
 
                             "add"       for adding a server
-                            "dance"     for performing an oauth-dance
+                            "dance"     for performing an OAuth-dance
                             "delete"    for deleting a server definition
                             "edit"      for editing a server definition
                             "list"      for listing known servers
+                            "select"    for selecting a default server
                             "show"      for showing a server definition
 
                     "template"  for managing templates
@@ -200,8 +205,8 @@ The structure of command line corresponds to the commonly used one:
             It eats up your stack when you are sleeping.
             EOF
 
-            # get the last comment from one issue with an additional
-            # line appended to it into another issues comment
+            # get the last comment from the last issue with an
+            # additional line appended to it into another issues comment
             # please note that the comment retrieval operation is done
             # in offline mode ("-O") to get a predictable result
             $ ( jic show -O -p comments -R "-1" -r CARD-100 ; \
@@ -249,9 +254,9 @@ The structure of command line corresponds to the commonly used one:
             # reply to the last comment using editor
             $ jic comment reply -e -R -1 CARD-100
 
-            # reply to the last comment using pipes
-            # the input provided is appended to the quoted text of the
-            # comment being replied to
+            # reply to the comment specified using pipes; the input
+            # provided is appended to the quoted text of the comment
+            # being replied to
             $ echo -e "\nI like that cute embedded nonsense hack!" | \
                 jic comment reply CARD-100:2345
 
@@ -274,19 +279,62 @@ The structure of command line corresponds to the commonly used one:
 
 2.2. CONFIGURATION COMMANDS
 
-    2.2.1. SET
+    2.2.1. LIST
 
         TODO: document
 
+        Examples:
 
-    2.2.2. SHOW
+            # list all configuration options
+            $ jic configuration list
+
+            # list configuration options which names contain 'user'
+            $ jic c l user
+
+
+    2.2.2. SET
 
         TODO: document
 
+        Examples:
 
-    2.2.3. UNSET
+            # set a configuration option
+            $ jic config set user.name "Fearless Engineer"
+
+            # set configuration options using stdin
+            $ jic configuration set <<EOF
+            user.name "Fearless Engineer"
+            user.email fearless@engineering.org
+            EOF
+
+
+    2.2.3. SHOW
 
         TODO: document
+
+        Examples:
+
+            # show values for configuration options specified
+            $ jic configuration show user.name user.email
+
+            # show raw value (useful for scripted processing)
+            $ jic conf show -r user.email
+
+            # show all values
+            $ jic configuration show -a
+
+            # show values whose names match the regexp
+            $ echo ".*user.*" | jic configuration show
+
+
+    2.2.4. UNSET
+
+        TODO: document
+
+        Examples:
+
+            # unset the password option (OAuth is better)
+            $ jic configuration unset MyServer.user.password
 
 
 2.3. ISSUE COMMANDS
@@ -309,92 +357,93 @@ The structure of command line corresponds to the commonly used one:
 
     2.3.2. CREATE
 
-    $ jic [issue] create <options> [<issue_key_list>]
+    $ jic [issue] create <switches> [<issue_key_list>]
 
-        creates one or more issues as requested using the information
+        Creates one or more issues as requested using the information
         provided by the means of:
 
-            * file with jicML representation of the issues being
-              created, which gets opened in the configured editor for
-              editing, and parsed and executed afterwards
+            * interactive jicML editing (-e switch)
 
-                any valid fields/issues can be added into or deleted
+                A file with jicML representation of the issues is
+                created and opened in the configured editor for
+                editing, parsed and executed afterwards.
+
+                Any valid fields/issues can be added into or deleted
                 from the jicML file and desired issue field values
                 provided - all the requested modifications will be
-                performed in JIRA accordingly
+                performed in JIRA accordingly.
 
-                if the file has not been changed or got truncated to
-                zero length, no operations will be performed
+                If the file has not been changed or got truncated to
+                zero length, no operations will be performed.
 
-                if there were errors reported by JIRA when trying to
+                If there were errors reported by JIRA when trying to
                 apply the changes, an editor will be presented again
-                with unsuccessful parts of the change with inlined
-                error messages to allow the user correcting those errors
-                or cancelling the creation of the remainder of the
-                change set
+                with unsuccessful parts of the change decorated with
+                inlined error messages to allow the user correcting
+                those errors or canceling the remainder of the changes.
 
             * standard input
 
-                - if "-t" option is specified
+                - if "-t" switch is specified
 
-                    values are read from the standard input and assigned
+                    Values are read from the standard input and assigned
                     to the issue fields according to the order of
-                    mentioning of those fields in the template
+                    mentioning of those fields in the template.
 
-                    data from the standard input is expected to be a
+                    Data from the standard input is expected to be a
                     steam of valid jicML values delimited by new line
                     characters; an empty line is treated as a request to
-                    not update the corresponding field
+                    not update the corresponding field.
 
-                    if input provides less values than there are fields
+                    If input provides less values than there are fields
                     in the template, all the remaining fields are left
-                    intact
+                    intact.
 
-                    if input provides more values than needed according
+                    If input provides more values than needed according
                     to the template, then all the extra values are
-                    appended to the last field's value
+                    appended to the last field's value.
 
-                    if input is a stream of jicML name:value pairs,
+                    If input is a stream of jicML name:value pairs,
                     value assignment is done as in the case of none of
-                    the options specified
+                    the switches specified.
 
-                - if "-F" option is specified
+                - if "-F" switch is specified
 
-                    values are read from the standard input and assigned
-                    to the issue fields listed by this option according
-                    to the order of listing
+                    Values are read from the standard input and assigned
+                    to the issue fields listed by this switch according
+                    to the order of listing.
 
-                    data from the standard input is expected to be a
+                    Data from the standard input is expected to be a
                     steam of valid jicML values delimited by new line
                     characters; an empty line is treated as a request
-                    not to update the corresponding field
+                    not to update the corresponding field.
 
-                    if input provides less values than there are fields
-                    listed for this option, all the remaining fields are
+                    If input provides less values than there are fields
+                    listed for this switch, all the remaining fields are
                     assigned with the same value as the last one
-                    received from the input
+                    received from the input.
 
-                    if input provides more values than needed according
+                    If input provides more values than needed according
                     to the template, then all the extra values are
                     appended to the last field's value using space as a
-                    delimiter when needed
+                    delimiter when needed.
 
-                    if input is a stream of jicML name:value pairs,
+                    If input is a stream of jicML name:value pairs,
                     value assignment is done as in the case of none of
-                    the options specified
+                    the switches specified.
 
                 - if none of the above are specified
 
-                    fields and their respective values are read from the
+                    Fields and their respective values are read from the
                     standard input and assigned to corresponding issue
-                    fields
+                    fields.
 
-                    data from the standard input is expected to be a
-                    steam of valid jicML name:value pairs
+                    Data from the standard input is expected to be a
+                    steam of valid jicML name:value pairs.
 
-                if there were errors creating the issues in JIRA, the
+                If there were errors creating the issues in JIRA, the
                 command prints out the error messages and returns an
-                error code (TODO: specify)
+                error code (TODO: specify).
 
                 New issues have issue keys that are composed according
                 to the following template:
@@ -411,103 +460,123 @@ The structure of command line corresponds to the commonly used one:
                                         the new issues defined in a
                                         single jicML data set
 
-        options:
+        Relevant switches:
 
             -d
             --down
-                use children of the parent issue specified by other
+                Use children of the parent issue specified by other
                 means as parents for newly created issues; the number of
                 issues created for each parent depends on the number of
-                issue types specified using "-T" option
+                issue types specified using "-T" switch.
 
             -D <issue_key_list>
             --down-from <issue_key_list>
-                use children of the issues specified as parents
+                Use children of the issues specified as parents
                 for newly created issues; the number of issues created
                 for each parent depends on the number of issue types
-                specified using "-T" option
+                specified using "-T" switch.
 
             -H <depth>
             --depth <depth>
-                process as many levels up or down as specified; zero corresponds
+                Process as many levels up or down as specified; zero corresponds
                 only to the issue specified for -u or -d, immediate
                 parent/children correspond to depth 1, etc.
 
             -e
             --editor
-                invoke an editor to edit the jicML representation of the
-                issues being created before it gets parsed and executed
+                Invoke an editor to interactively edit the jicML
+                representation of the issues which is then parsed and
+                executed.
 
-                if file is not modified or is empty, the operation is
-                cancelled
+                If the file is not modified or is empty, the operation
+                is cancelled and no changes are made.
 
             -f <criteria_list>
             --filter <criterion>
-                use only the issues matching the criteria as parents
-                for newly created issues; if multiple such options
+                Use only the issues matching the criteria as parents
+                for newly created issues; if multiple such switches are
                 specified, those criteria are combined using logical
-                "or" operation
+                "or" operation.
 
             -F <field_list>
             --fields <field_list>
-                edit only the issue fields specified
+                Edit only the issue fields specified.
 
-                overrides template (default or the one specified
-                explicitly using "-t" option) if specified
+                Overrides template (default one or the one specified
+                explicitly using "-t" switch) if specified using -t
+                switch.
 
             -k
             --keys
-                get issue keys to be processed using the same method
-                (editor or standard input) as used for getting all the
-                other data for the operation
+                Get issue keys for the issues to be processed using the
+                same method (an editor or standard input) as the one
+                used for getting all the other data for the operation.
 
-                in this case all the non-empty lines of the input text
+                In this case all the non-empty lines of the input text
                 until the first empty line are interpreted as containing
                 a white-space or comma- separated issue keys; keys
                 listed this way are appended to the keys specified by
-                other means (arguments or options)
+                other means (arguments or switches).
 
             -L <link_type_list>
             --link-type <link_type_list>
-                link newly created issues to their respective parent
-                issues using all the link types specified
+                Link newly created issues to their respective parent
+                issues using all the link types specified.
+
+            -n <number>
+            --number <number>
+                Create <number> of issues of each type specified.
 
             -o
             --online
-                perform an online operation (create issues on the
-                corresponding server as well as the local cache)
+                Perform an online operation (create issues on the
+                corresponding server as well as the local cache).
 
             -O
             --offline
                 perform an offline operation (create issues in the local
                 cache only)
 
+            -S <server_name>
+            --server <server_name>
+                Use the JIRA server specified (or the corresponding
+                cached information).
+
             -t <name>
             --template <name>
-                create issues according to the template referred by <name>
+                Create issues according to the template specified.
 
             -T <issue_type_list>
             --issue-types <issue_type_list>
-                create as many new issues per each parent as the number
-                of specified issues types - one for each
+                Create as many new issues per each parent as the number
+                of specified issues types - one for each. If this switch
+                is not used, then the last one used for the same server
+                is used again.
 
-            -u <issue_key_list> --up <issue_key_list> process ancestors
-                of the issue specified by <issue_key>; the issue
-                specified is not processed
+            -u <issue_key_list> --up <issue_key_list>
+                Process ancestors of the issues specified; the issues
+                specified is not processed (unless -s is also being
+                used).
 
         Examples:
 
             # create two child issues of type "Sub-task" for CARD-100
             # using an editor, using the default link type to link newly
             # created issues to their parent and a default template
-            $ jic create -e -T Sub-task CARD-100
+            $ jic create -e -T Sub-task -n 2 CARD-100
 
             # create child issues of type "Sub-task" one for each child
             # issue of the CARD-100 linking new issues to them  using
             # the link type specified while filling in only the Summary
             # field
-            $ echo "Perform the preliminary research" | jic create \
-                -d CARD-100 -D 1 -T Sub-task -L implements -F Summary
+            $ echo "Perform the preliminary research" | \
+                jic create -d CARD-100 -H 1 -T Sub-task -L implements \
+                    -F Summary
+
+            # create two child issues of type "Sub-task" under the
+            # CARD-100 using stdin to set their summaries
+            $ echo -e "Do the first step\nDo the second step" | \
+                jic create CARD-100 -T Sub-task -L implements -F Summary
 
 
     2.3.3. DELETE
@@ -516,7 +585,7 @@ The structure of command line corresponds to the commonly used one:
 
         Examples:
 
-            # delete the issue
+            # delete the issue specified
             $ jic issue delete CARD-100
 
             # delete a couple of issues
@@ -529,170 +598,178 @@ The structure of command line corresponds to the commonly used one:
 
     2.3.4. EDIT
 
-    $ jic edit <options> [<issue_key_list>]
+    $ jic edit <switches> [<issue_key_list>]
 
-        edits one or more issues specified using the information
+        Edits one or more issues specified using the information
         provided by the means of:
 
             * file with jicML representation of the issues being edited
               opened in the configured editor for editing and parsed
-              afterwards
+              afterwards.
 
-                any valid fields/issues can be added into or deleted
+                Any valid fields/issues can be added into or deleted
                 from the file and issue field values changed to have
                 corresponding issues updated accordingly; in case if a
                 new issue is added it will be created too (see the
-                "issue create" command for details)
+                "issue create" command for details).
 
-                if the file has not been changed or got truncated to
-                zero length, no operations are performed
+                If the file has not been changed or got truncated to
+                zero length, no operations are performed.
 
-                if there were errors reported by JIRA when trying to
+                If there were errors reported by JIRA when trying to
                 apply the changes, an editor is presented with inlined
                 error messages to allow the user correcting those errors
-                or cancelling the erroneous bits of the change by not
-                changing the file
+                or canceling the erroneous bits of the change by not
+                changing the file.
 
             * standard input
 
-                - if "-t" option is specified
+                - if "-t" switch is specified
 
-                    values are read from the standard input and assigned
+                    Values are read from the standard input and assigned
                     to the issue fields according to the order of
-                    mentioning of those fields in the template
+                    mentioning of those fields in the template.
 
-                    data from the standard input is expected to be a
+                    Data from the standard input is expected to be a
                     steam of valid jicML values delimited by new line
                     characters; an empty line is treated as a request to
-                    not update the corresponding field
+                    not update the corresponding field.
 
-                    if input provides less values than there are fields
+                    If input provides less values than there are fields
                     in the template, all the remaining fields are left
-                    intact
+                    intact.
 
-                    if input provides more values than needed according
+                    If input provides more values than needed according
                     to the template, then all the extra values are
-                    appended to the last field's value
+                    appended to the last field's value.
 
-                    if input is a stream of jicML name:value pairs,
+                    If input is a stream of jicML name:value pairs,
                     value assignment is done as in the case of none of
-                    the options specified
+                    the switches specified.
 
-                - if "-F" option is specified
+                - if "-F" switch is specified
 
-                    values are read from the standard input and assigned
-                    to the issue fields listed by this option according
-                    to the order of listing
+                    Values are read from the standard input and assigned
+                    to the issue fields listed by this switch according
+                    to the order of listing.
 
-                    data from the standard input is expected to be a
+                    Data from the standard input is expected to be a
                     steam of valid jicML values delimited by new line
                     characters; an empty line is treated as a request
-                    not to update the corresponding field
+                    not to update the corresponding field.
 
-                    if input provides less values than there are fields
-                    listed for this option, all the remaining fields are
+                    If input provides less values than there are fields
+                    listed for this switch, all the remaining fields are
                     assigned with the same value as the last one
-                    received from the input
+                    received from the input.
 
-                    if input provides more values than needed according
+                    If input provides more values than needed according
                     to the template, then all the extra values are
                     appended to the last field's value using space as a
-                    delimiter when needed
+                    delimiter when needed.
 
-                    if input is a stream of jicML name:value pairs,
+                    If input is a stream of jicML name:value pairs,
                     value assignment is done as in the case of none of
-                    the options specified
+                    the switches specified.
 
                 - if none of the above are specified
 
-                    fields and their respective values are read from the
+                    Fields and their respective values are read from the
                     standard input and assigned to corresponding issue
-                    fields
+                    fields.
 
-                    data from the standard input is expected to be a
-                    steam of valid jicML name:value pairs
+                    Data from the standard input is expected to be a
+                    steam of valid jicML name:value pairs.
 
-                if there were errors applying the changes in JIRA, the
+                If there were errors applying the changes in JIRA, the
                 command prints out the error messages and returns an
-                error code (TODO: specify)
+                error code (TODO: specify).
 
-        options:
+        Relevant switches:
 
             -d <issue_key_list>
             --down <issue_key_list>
-                process children of the parent specified by <issue_key>;
-                the issue specified is not processed
+                Process children of the parent specified by <issue_key>;
+                the issue specified is not processed.
 
-            -D <depth>
+            -H <depth>
             --depth <depth>
-                process as many levels up or down as specified; zero
+                Process as many levels up or down as specified; zero
                 corresponds only to the issue specified for -u or -d,
                 immediate parent/children correspond to depth 1, etc.
 
             -e
             --editor
-                invoke an editor to edit the issues specified according
+                Invoke an editor to edit the issues specified according
                 to the template (default one for the issue type or one
-                specified explicitly using "-t" option)
+                specified explicitly using "-t" switch).
 
-                if file is not modified or is empty, the operation is
-                cancelled
+                If file is not modified or is empty, the operation is
+                cancelled.
 
             -f <criteria>
             --filter <criteria>
-                show only issues matching the criteria; if multiple
-                such options specified, those criteria are combined
-                using logical "or" operation
+                Show only issues matching the criteria; if multiple
+                such switches specified, those criteria are combined
+                using logical "or" operation.
 
-                parent and child issues around those issues which are
+                Parent and child issues around those issues which are
                 not shown according to the criteria specified using this
-                option, are shown as connected (with an indication that
-                there are skipped issues)
+                switch, are shown as connected (with an indication that
+                there are skipped issues).
 
             -F <field_list>
             --fields <field_list>
-                edit only the issue fields specified
+                Edit only the issue fields specified.
 
-                overrides template (default or the one specified
-                explicitly using "-t" option) if specified
+                Overrides template (default or the one specified
+                explicitly using "-t" switch) if specified.
 
             -k
             --keys
-                get issue keys to be processed using the same method
+                Get issue keys to be processed using the same method
                 (editor or standard input) as used for getting all the
-                other data for the operation
+                other data for the operation.
 
-                in this case all the non-empty lines of the input until
+                In this case all the non-empty lines of the input until
                 the first empty line are interpreted as containing a
                 white-space or comma- separated issue keys; keys listed
                 this way are appended to the keys specified by other
-                means (arguments or options)
+                means (arguments or switches).
 
             -o
             --online
-                perform an online operation (update the data on the
-                corresponding server as well as the local cache)
+                Perform an online operation (update the data on the
+                corresponding server as well as the local cache).
 
             -O
             --offline
-                perform an offline operation (update the data in the
-                local cache only)
+                Perform an offline operation (update the data in the
+                local cache only).
+
+            -S <server_name>
+            --server <server_name>
+                Use the JIRA server specified (or the corresponding
+                cached information).
 
             -t <name>
             --template <name>
-                edit issues according to the template referred by <name>
+                Edit issues according to the template specified.
 
             -u <issue_key_list>
             --up <issue_key_list>
-                process ancestors of the issue specified by <issue_key>;
-                the issue specified is not processed
+                Process ancestors of the issue specified by <issue_key>;
+                the issue specified is not processed.
 
         Examples:
 
             # update two issues using an editor and a default template
             $ jic edit -e CARD-100 CARD-101
 
-            # add FixVersion/s values for two cards using pipes
+            # add FixVersion/s value for two cards using pipes
+            # as only one value is provided (single line of text), it is
+            # used for all the following fields/issues that are missing
+            # their own values - effectively copying the value
             $ echo "+2014.12" | \
                 jic edit -F "FixVersion/s" CARD-100 CARD-101
 
@@ -721,8 +798,11 @@ The structure of command line corresponds to the commonly used one:
 
         Examples:
 
-        # show issue fields
+        # show all issue fields
         $ jic issue fields CARD-100
+
+        # show required fields
+        $ jic issue fields -p required CARD-100
 
 
     2.3.7. FORGET
@@ -738,74 +818,87 @@ The structure of command line corresponds to the commonly used one:
             # "implements" link type
             $ jic issue forget -D CARD-100 -L implements
 
+            # forget issues listed in MyList and all their
+            # "implemented by" children
+            $ jic issue forget -s -d list:MyList
+
 
     2.3.8. LIST
 
-    $ jic list <options> [<issue_key_list>]
+    $ jic list <switches> [<issue_key_list>]
 
-        lists one or more issues specified
+        Lists one or more issues specified.
 
-        if there are no issue keys specified (either as <issue_key_list>
-        argument or as options) for the command, it shows nothing
+        If there are no issue keys specified (either as <issue_key_list>
+        argument or as switches) for the command, it shows nothing.
 
-        options:
+        Relevant switches:
 
             -d <issue_key_list>
             --down <issue_key_list>
-                process children of the parent specified by <issue_key>;
-                the issue specified is not processed
+                Process children of the parent specified by <issue_key>;
+                the issue specified is not processed.
 
-            -D <depth>
+            -H <depth>
             --depth <depth>
-                process as many levels up or down as specified; zero
+                Process as many levels up or down as specified; zero
                 corresponds only to the issue specified for -u or -d,
                 immediate parent/children correspond to depth 1, etc.
 
             -e
-                invoke an editor to get (if none are provided) or edit
+                Invoke an editor to get (if none are provided) or edit
                 and confirm the list of issue keys to process; operation
-                is cancelled if the file is truncated to zero length
+                is cancelled if the file is truncated to zero length.
 
             -f <criterion>
             --filter <criterion>
-                show only issues matching the criterion; if multiple
-                such options specified, those criteria are combined
-                using logical "and" operation
+                Show only issues matching the criterion; if multiple
+                such switches specified, those criteria are combined
+                using logical "and" operation.
+
+            -n <number>
+            --number <number>
+                List <number> of issues only.
 
             -o
             --online
-                perform an online operation (retrieve the data from the
-                corresponding server)
+                Perform an online operation (retrieve the data from the
+                corresponding server).
 
             -O
             --offline
-                perform an offline operation (retrieve the data from the
-                local cache only)
+                Perform an offline operation (retrieve the data from the
+                local cache only).
 
             -s
             --self
-                also include the issue mentioned for -u or -d
+                Also include the issue mentioned for -u or -d.
+
+            -S <server_name>
+            --server <server_name>
+                Use the JIRA server specified (or the corresponding
+                cached information).
 
             -t <name>
             --template <name>
-                show issues according to the template referred by <name>
+                Show issues according to the template specified.
 
             -u <issue_key_list>
             --up <issue_key_list>
-                process ancestors of the issue specified by <issue_key>;
-                the issue specified is not processed
+                Process ancestors of the issue specified by <issue_key>;
+                the issue specified is not processed.
 
         <issue_key_list>
-            an optional comma- or space- separated list of issue keys;
+            An optional comma- or space- separated list of issue keys;
             the output of this command is a combination of issues found
-            according to the criteria specified by options above and
-            ones specified by this argument
+            according to the criteria specified by switches above and
+            ones specified by this argument.
 
         Examples:
 
             # list all user's assigned issues of "Blueprint" and
-            # "Sub-task" issue types
-            # action subject is omitted so "issue" is assumed
+            # "Sub-task" issue types; action subject is omitted so
+            # "issue" is assumed
             $ jic list -f "assignee=$me" -T "Blueprint,Sub-task"
 
             # list all user's authored or assigned issues
@@ -818,8 +911,14 @@ The structure of command line corresponds to the commonly used one:
 
         Examples:
 
-            # link two issues using "implements" link type
-            $ jic link
+            # link CARD-101 to CARD-100 using "implements" link type;
+            # target hierarchy is:
+            # CARD-100
+            #  +- is implemented by: CARD-101
+            $ jic link -L Implements CARD-101 CARD-100
+
+            # alternative to the above
+            $ jic link -L "Implemented by" CARD-100 CARD-101
 
 
     2.3.10. MOVE
@@ -833,9 +932,12 @@ The structure of command line corresponds to the commonly used one:
 
         Examples:
 
-            # refresh from the server all the issues that are in local
-            # cache
+            # refresh all the locally cached issues from the server
             $ jic pull
+
+            # refresh only specific issues from those cached locally
+            # ones - assigned to the user ones
+            $ jic pull -f "assignee=$me"
 
 
     2.3.12. PUSH
@@ -852,11 +954,14 @@ The structure of command line corresponds to the commonly used one:
             # push only changes for the listed issues to the server
             $ jic issue push CARD-100 CARD-101
 
-            # push only last change to the server
+            # push only last change made to CARD-101 to the server
             $ jic issue push CARD-101:-1
 
             # push listed changes to the server
             $ jic issue push CARD-100:1,2,5 CARD-101:2-4
+
+            # push changes made to the issues listed in MyList
+            $ jic issue push list:MyList
 
 
     2.3.13. REVERT
@@ -871,131 +976,198 @@ The structure of command line corresponds to the commonly used one:
             # revert all the changes to the card
             $ jic issue revert CARD-101
 
+            # interactively revert changes to the CARD-100; action
+            # subject is omitted in this case - "issue" assumed
+            $ jic revert -i CARD-100
 
-    2.3.14. SHOW
 
-    $ jic show <options> [<issue_key> [...]]
+    2.3.14. STATUS
 
-        shows details for one or more issues specified
+        TODO: document
 
-        if <issue_key> equals to "-", standard input is used to get
+        Examples:
+
+            # show status of all the issues locally modified for JIRA
+            # server "MyServer"; only those issues which have unpushed
+            # local changes are shown
+            $ jic status -S MyServer
+
+            # show status of the CARD-100 and its children
+            $ jic issue status -s -D CARD-100
+
+
+    2.3.15. SHOW
+
+    $ jic show <switches> [<issue_key> [...]]
+
+        Shows details for one or more issues specified.
+
+        If <issue_key> equals to "-", standard input is used to get
         issue list to process (can be white-space- or comma- separated)
-        until the EOF
+        until the EOF.
 
-        if there are no issue keys specified (either as <issue_key_list>
-        argument or as options) for the command, it shows nothing
+        If there are no issue keys specified (either as <issue_key_list>
+        argument or as switches) for the command, it shows nothing.
 
-        options:
+        Relevant switches:
+
             -a
             --all
-                show all parts of the issues (all fields, links,
-                comments, history); a synonym to "-p all"
+                Show all parts of the issues (all fields, links,
+                comments, history); a synonym to "-p all".
 
             -d <issue_key_list>
             --down <issue_key_list>
-                process children of the parent specified by <issue_key>;
-                the issue specified is not processed
+                Process children of the parent specified by <issue_key>;
+                the issue specified is not processed.
 
-            -D <depth>
+            -H <depth>
             --depth <depth>
-                process as many levels up or down as specified; zero
+                Process as many levels up or down as specified; zero
                 corresponds only to the issue specified for -u or -d,
                 immediate parent/children correspond to depth 1, etc.
 
             -e
             --editor
-                invoke an editor to get (if none are provided) or edit
+                Invoke an editor to get (if none are provided) or edit
                 and confirm the list of issue keys to process; operation
-                is cancelled if the file is truncated to zero length
+                is cancelled if the file is truncated to zero length.
+
+            -o
+            --online
+                Perform an online operation (retrieve the data from the
+                corresponding server).
+
+            -O
+            --offline
+                Perform an offline operation (retrieve the data from the
+                local cache only).
 
             -p <comma-separated-part-list>
             --parts <comma-separated-part-list>
-                show all mentioned parts, options are:
-                    "all", "header", "fields", "comments", "history", "links"
+                Show all the parts mentioned, options are:
+                    "all", "header", "fields", "comments", "history",
+                    "links".
 
             -s
             --self
-                also include the issue mentioned for -u or -d
+                Also include the issue mentioned for -u or -d.
+
+            -S <server_name>
+            --server <server_name>
+                Use the JIRA server specified (or the corresponding
+                cached information).
 
             -t <name>
             --template <name>
-                show issues according to the template referred by <name>
+                Show issues according to the template specified.
 
             -u <issue_key_list>
             --up <issue_key_list>
-                process ancestors of the issue specified by <issue_key>;
-                the issue specified is not processed
+                Process ancestors of the issue specified by <issue_key>;
+                the issue specified is not processed.
+
+        Examples:
+
+            # show all parts of an issue
+            $ jic issue show -a CARD-100
+
+            # show issue's fields, comments and history
+            $ jic show -p fields,comments,history CARD-100
+
+            # show work log in raw format
+            $ jic show -R -p worklog CARD-100
 
 
-    2.3.15. TRANSITION
+    2.3.16. TRANSITION
 
         TODO: document
 
         Examples:
 
             # transition the issue into the "In Progress" state
-            $ jic issue transition -S "In Progress" CARD-100
+            $ jic issue transition CARD-100 "In Progress"
 
             # transition a set of issues into "Resolved" state with the
             # resolution being "Fixed"
-            $ jic transition CARD-100 -S Resolved:Fixed
+            $ jic transition CARD-100 Resolved:Fixed
 
             # transition all the immediate child issues of the issue
-            # specified using an editor
+            # specified interactively using an editor
             $ jic transition -D CARD-100 -H 1 -e
 
+            # transition the issue specified and all its children using
+            # an editor; all possible target states for the issues will
+            # be listed in jicML file presented for editing
+            $ jic issue transition -s -d CARD-100
 
-    2.3.16. TREE
 
-    $ jic tree <options> [<issue_key_list>]
+    2.3.17. TREE
 
-        shows hierarchy that surrounds the issues specified
+    $ jic tree <switches> [<issue_key_list>]
 
-        if there are no issue keys specified (either as <issue_key_list>
-        argument or as options) for the command, it shows nothing
+        Shows hierarchy that surrounds the issues specified.
 
-        options:
+        If there are no issue keys specified (either as <issue_key_list>
+        argument or as switches) for the command, it shows nothing.
+
+        Relevant switches:
 
             -d <issue_key_list>
             --down <issue_key_list>
-                process children of the parent specified by <issue_key>
+                Process children of the parents specified.
 
-            -D <depth>
+            -H <depth>
             --depth <depth>
-                process as many levels up or down as specified; zero
+                Process as many levels up or down as specified; zero
                 corresponds only to the issue specified for -u or -d,
                 immediate parent/children correspond to depth 1, etc.
 
             -e
             --editor
-                invoke an editor to get (if none are provided) or edit
+                Invoke an editor to get (if none are provided) or edit
                 and confirm the list of issue keys to process; operation
-                is cancelled if the file is truncated to zero length
+                is cancelled if the file is truncated to zero length.
 
             -f <criterion>
             --filter <criterion>
-                show only issues matching the criterion; if multiple
-                such options specified, those criteria are combined
-                using logical "and" operation
+                Show only issues matching the criterion; if multiple
+                such switches specified, those criteria are combined
+                using logical "and" operation.
 
-                parent and child issues around those issues which are
+                Parent and child issues around those issues which are
                 not shown (according to the criteria specified using
-                this option), still are shown as connected (with an
-                indication that there are skipped issues)
+                this switch), still are shown as connected (with an
+                indication that there are skipped issues).
+
+            -o
+            --online
+                Perform an online operation (retrieve the data from the
+                corresponding server).
+
+            -O
+            --offline
+                Perform an offline operation (retrieve the data from the
+                local cache only).
+
+            -S <server_name>
+            --server <server_name>
+                Use the JIRA server specified (or the corresponding
+                cached information).
 
             -t <name>
             --template <name>
-                show issues according to the template referred by <name>
+                Show issues according to the template specified.
 
             -u <issue_key_list>
             --up <issue_key_list>
-                process ancestors of the issue specified by <issue_key>
+                Process ancestors of the issue specified.
 
         <issue_key_list>
-            an optional comma- or space- separated list of issue keys;
+            An optional comma- or space- separated list of issue keys;
             the output of this command is a combination of issues found
-            according to the criteria specified by options above and
-            ones specified by this argument
+            according to the criteria specified by switches above and
+            ones specified by this argument.
 
         Examples:
 
@@ -1009,9 +1181,23 @@ The structure of command line corresponds to the commonly used one:
             $ jic tree -a CARD-100
 
 
-    2.3.17. UNLINK
+    2.3.18. UNLINK
 
         TODO: document
+
+        Examples:
+
+            # Example hierarchy:
+            # CARD-100
+            #   |
+            #   +-- implemented by: CARD-101
+            #   +-- depends on: CARD-101
+
+            # remove all links between CARD-100 and CARD-101
+            $ jic issue unlink CARD-100 CARD-101
+
+            # remove only dependency between the issues
+            $ jic unlink -L depends CARD-100 CARD-101
 
 
 2.4. LINK COMMANDS
@@ -1023,10 +1209,19 @@ The structure of command line corresponds to the commonly used one:
         Examples:
 
             # link two issues with "depends" link so that CARD-100 would
-            # depend on CARD-101
-            $ jic link create -L depends CARD-100 CARD-101
+            # depend on CARD-101 giving the following hierarchy:
+            # CARD-100
+            #   |
+            #   *-- depends on: CARD-101
+            $ jic link create -L depends CARD-101 CARD-100
 
-            # link CARD-101/102/103 as implementing CARD-100
+            # link CARD-101/102/103 as implementing CARD-100 giving the
+            # following hierarchy:
+            # CARD-100
+            #   |
+            #   *-- is implemented by: CARD-101
+            #   *-- is implemented by: CARD-102
+            #   *-- is implemented by: CARD-103
             $ jic link create -L implements \
                 CARD-101,CARD-102,CARD-103 CARD-100
 
@@ -1058,8 +1253,9 @@ The structure of command line corresponds to the commonly used one:
             # list all links for the issue
             $ jic link list CARD-100
 
-            # list upward (towards parent) links
-            $ jic link list -u CARD-100
+            # list upward (towards parent) links including the card
+            # itself
+            $ jic link list -s -u CARD-100
 
 
 2.5. LIST COMMANDS
@@ -1117,7 +1313,7 @@ The structure of command line corresponds to the commonly used one:
         TODO: document
 
         Examples:
-        
+
             # Delete JIRA issue list named "MyList"
             $ jic list delete MyList
 
@@ -1132,8 +1328,9 @@ The structure of command line corresponds to the commonly used one:
             $ jic list edit -e MyList
 
             # Edit issue's comment using sed
-            $ jic list show --raw CARD-100 | sed s/bad/improving/ | \
-                jic list edit CARD-100
+            $ jic list show --raw MyList CARD-100 | \
+                sed s/bad/improving/ | \
+                jic list edit MyList CARD-100
 
 
     2.5.5. LIST
@@ -1155,8 +1352,12 @@ The structure of command line corresponds to the commonly used one:
 
         Examples:
 
-            # Receive issue list that was sent by "list send" command
+            # Receive an issue list that was sent by "list send"
+            # command; the name of the list is taken from the file.
             $ jic list receive << file_that_was_sent
+
+            # Receive an issue list giving it a name.
+            $ jic list receive MyReceivedList < file_that_was_sent
 
 
     2.5.7. REMOVE
@@ -1166,7 +1367,10 @@ The structure of command line corresponds to the commonly used one:
         Examples:
 
             # Remove a JIRA issues from "MyList"
-            $ jic list remove CARD-100 CARD-101
+            $ jic list remove MyList CARD-100 CARD-101
+
+            # Remove JIRA issues interactively from "MyList"
+            $ jic list remove -i MyList
 
 
     2.5.8. SEND
@@ -1177,6 +1381,10 @@ The structure of command line corresponds to the commonly used one:
 
             # Send a JIRA issue list to someone else
             $ jic list send MyList | sendmail someone.else@host
+
+            # Send a JIRA issue list "MyList" to someone else giving it
+            # a different name "YourList"
+            $ jic list send MyList YourList | sendmail someone.else@host
 
 
     2.5.9. SHOW
@@ -1194,6 +1402,7 @@ The structure of command line corresponds to the commonly used one:
             # Show only a card and all its children if those are listed
             # in the list
             $ jic list show -d CARD-100
+
 
 2.6. REPORT COMMANDS
 
@@ -1258,12 +1467,12 @@ The structure of command line corresponds to the commonly used one:
         Examples:
 
             # edit server information using an editor
-            $ jic server edit -e ServerName
+            $ jic server edit -e MyServer
 
             # edit the server using pipes
-            $ jic server edit ServerName <<EOF
-            http://new.url
-            user@new.url
+            $ jic server edit MyServer <<EOF
+            URL: http://new.url
+            User: user@new.url
             EOF
 
 
@@ -1277,14 +1486,25 @@ The structure of command line corresponds to the commonly used one:
             $ jic server list
 
 
-    2.7.6. SHOW
+    2.7.6. SELECT
+
+        TODO: document
+
+        Examples:
+
+            # Select MyServer as the default one (to be used when
+            # -S switch is not specified)
+            $ jic server select MyServer
+
+
+    2.7.7. SHOW
 
         TODO: document
 
         Examples:
 
             # show server information
-            $ jic server show ServerName
+            $ jic server show MyServer
 
 
 2.8. TEMPLATE
@@ -1293,39 +1513,61 @@ The structure of command line corresponds to the commonly used one:
 
         TODO: document
 
+        Examples:
+
+            # create MyTemplate from the default one using an editor
+            $ jic template create -e MyTemplate
+
+            # create MyTemaplte as a copy of MyOtherTemplate and edit it
+            # using an editor
+            $ jic template create -e MyTemplate MyOtherTemplate
+
 
     2.8.2. DELETE
 
         TODO: document
+
+        Examples:
+
+            # delete MyTemplate
+            $ jic template delete MyTemplate
+
+            # delete templates interactively
+            $ jic template delete -i
 
 
     2.8.3. EDIT
 
         TODO: document
 
+        Examples:
+
+            # edit MyTemplate for MyServer using an editor
+            $ jic template edit -S MyServer -e MyTemplate
 
 
-3. OPTIONS
+
+3. SWITCHES
 
     -a
     --all
-        show all parts of the issues (all fields, links, comments,
-        history); a synonym to "-p all"
+        Show all parts of the issues (all fields, links, comments,
+        history); might also be a synonym to "-p all" in some cases.
 
     -d
     --down
-        process children of the issues denoted by other means but not
-        those issues themselves unless there is a "-s" option specified
+        Process children of the issues denoted by other means but not
+        those issues themselves unless there is a "-s" switch specified.
 
-        unless there are link types specified by the option "L", all
-        link types are included in the traversal operation
+        unless there are link types specified by the "-L" switch, all
+        link types are included in the traversal operation.
 
-        down means the following for different link types:
+        Down means the following for different link types:
         - implements: from the implemented issue to its implementors;
         - depends: from the dependee to its dependants;
         - clones: from the original to its clone.
 
-            examples:
+            Examples:
 
                 # list the CARD-100 issue and all its children
                 $ jic list --self --down CARD-100
@@ -1335,20 +1577,20 @@ The structure of command line corresponds to the commonly used one:
 
     -D <issue_key_list>
     --down-from <issue_key_list>
-        process children of the parents specified by <issue_key_list>;
-        the issue specified is not processed
+        Process children of the parents specified by <issue_key_list>;
+        the issue specified is not processed.
 
-        <issue_key_list> is a comma-separated list of issue keys
+        <issue_key_list> is a comma-separated list of issue keys.
 
-        unless there are link types specified by the option "L", all
-        link types are included in the traversal operation
+        Unless there are link types specified by the "-L" switch, all
+        link types are included in the traversal operation.
 
-        down means the following for different link types:
+        Down means the following for different link types:
         - implements: from the implemented issue to its implementors;
         - depends: from the dependee to its dependants;
         - clones: from the original to its clone.
 
-            examples:
+            Examples:
 
                 # list the CARD-100 issue and all its children
                 $ jic list --self --down CARD-100
@@ -1358,26 +1600,26 @@ The structure of command line corresponds to the commonly used one:
 
     -e
     --editor
-        invoke an editor to get (if none are provided) or edit
+        Invoke an editor to get (if none are provided) or edit
         and confirm the list of issue keys to process; operation
-        is cancelled if the file is truncated to zero length
+        is cancelled if the file is truncated to zero length.
 
-        specific semantics of this action and type of the information
+        Specific semantics of this action and type of the information
         that is being edited, as well as the reaction on all three
         outcomes of editing operation (those being: unmodified file,
         modified file, empty file) depend on the subject of action and
-        an action - see those for details
+        an action - see those for details.
 
     -f <criterion>
     --filter <criteria_anded>
-        show only issues matching the criteria; if multiple such
-        options specified, those criteria are combined using logical
-        "or" operation
+        Show only issues matching the criteria; if multiple such
+        switches specified, those criteria are combined using logical
+        "or" operation.
 
         <criteria_anded> is a coma-separated list of <criterion>, which
                          are combined using logical "and"
 
-        criterion:
+        Criterion:
             "<field><operation><value>"
 
             where
@@ -1399,7 +1641,7 @@ The structure of command line corresponds to the commonly used one:
                         the string (with an exception of optional
                         trailing "]" and "[" if present)
 
-            examples:
+            Examples:
                 -f "assignee=some.user@some.host"
                 -f "project=Some Project"
                 -f "fixVersion[,2014.01,2014.02]"
@@ -1407,105 +1649,136 @@ The structure of command line corresponds to the commonly used one:
 
     -F <field_list>
     --fields <field_list>
-        process only the issue fields specified
+        Process only the issue fields specified.
 
-        overrides template (default or the one specified explicitly
-        using "-t" option) if specified
+        Overrides template (default or the one specified explicitly
+        using "-t" switch) if specified.
 
     -H <depth>
     --depth <depth>
-        process as many levels up or down as specified; zero corresponds
+        Process as many levels up or down as specified; zero corresponds
         only to the issue specified for -u/U or -d/D, immediate
         parent/children correspond to depth 1, etc.
 
-            example:
+            Example:
                 -H 2
                 --depth 1
 
+    -i
+    --interactive
+        Perform operation interactively, confirming every step.
+
+    -j
+    --json
+        Work with JSON representation of the data.
+
     -k
     --keys
-        get issue keys to be processed using the same method (editor or
+        Get issue keys to be processed using the same method (editor or
         standard input) as used for getting all the other data for the
-        operation
+        operation.
 
     -L <link_type_list>
     --link-type <link_type_list>
-        provide one or more link types (as a comma-separated list) to
-        work with; specifics of semantics of this option depend on the
-        specific subject of action and an action - see those for details
+        Provide one or more link types (as a comma-separated list) to
+        work with; specifics of semantics of this switch depend on the
+        specific subject of action and an action - see those for
+        details.
 
     -m <message>
     --message <message>
-        provide a message that would be expected from the stdin
-        otherwise; new lines can be added using "\n"
+        Provide a message that would be expected from the stdin
+        otherwise; new lines can be added using "\n".
+
+    -n <number>
+    --number <number>
+        Process as many items as specified (e.g. when creating issues).
 
     -o
     --online
-        perform an online operation (update the data on the
-        corresponding server as well as the local cache)
+        Perform an online operation (update the data on the
+        corresponding server as well as the local cache).
 
     -O
     --offline
-        perform an offline operation (update the data in the local cache
-        only)
+        Perform an offline operation (update the data in the local cache
+        only).
 
     -p <comma-separated-part-list>
     --parts <comma-separated-part-list>
-        show all mentioned parts, options are:
-            "all", "header", "fields", "comments", "history", "links"
+        Show all mentioned parts, options are:
+            "all", "header", "fields", "comments", "history", "links".
 
     -P [<item_list>]
     --purge [<item_list>]
-        purge existing information and replace it with the one provided;
-        specifics of semantics of this option depend on specific subject
-        of action and an action - see those for details
+        Purge existing information and replace it with the one provided;
+        specifics of semantics of this switch depend on specific subject
+        of action and an action - see those for details.
 
         <item_list> is a comma-separated list if unique identifiers of
             the items to be purged; all items are purged if no argument
-            is provided
+            is provided.
+
+    -q <JQL_query>
+    --query <JQL_query>
+        Get the list of issues to process by performing the JQL
+        specified.
+
+    -Q
+    --query-stdin
+        Get the list of issues to process by performing the JQL
+        provided in stdin.
 
     -r
     --raw
-        output raw results of the command; typically useful for using in
-        automation; specifics of semantics of this option depend on
-        specific subject of action and an action - see those for details
+        Output raw results of the command; typically useful for using in
+        automation; specifics of semantics of this switch depend on
+        specific subject of action and an action - see those for
+        details.
 
     -R <range_spec>
     --range <range_spec>
-        specifies which items from the result set should be processed;
-        specifics of semantics of this option depend on specific subject
-        of action and an action - see those for details
+        Specifies which items from the result set should be processed;
+        specifics of semantics of this switch depend on specific subject
+        of action and an action - see those for details.
 
     -s
     --self
-        also include the issue mentioned for -u or -d
+        Also include the issue mentioned for -u or -d.
+
+    -S <server_name>
+    --server <server_name>
+        Use the JIRA server specified (or the corresponding
+        cached information).
 
     -t <name>
     --template <name>
-        show issues according to the template referred by <name>
+        Show issues according to the template specified.
 
-        templates are managed using template commands
+        Templates are managed using template commands.
 
     -T <issue_type_list>
     --issue-types <issue_type_list>
-        provide one or more issue types (as a comma-separated list) to
-        work with; specifics of semantics of this option depend on the
-        specific subject of action and an action - see those for details
+        Provide one or more issue types (as a comma-separated list) to
+        work with; specifics of semantics of this switch depend on the
+        specific subject of action and an action - see those for
+        details. If this switch is not used, then the last one used for
+        the same server is used again.
 
     -u
     --up
-        process ancestors of the issues denoted by other means but not
-        those issues themselves unless there is a "-s" option specified
+        Process ancestors of the issues denoted by other means but not
+        those issues themselves unless there is a "-s" switch specified.
 
-        unless there are link types specified by the option "L", all
-        link types are included in the traversal operation
+        Unless there are link types specified by the "-L" switch, all
+        link types are included in the traversal operation.
 
-        up means the following for different link types:
+        Up means the following for different link types:
         - implements: from implementor to its implemented issue;
         - depends: from the dependant to its dependee;
         - clones: from the the clone to its original.
 
-            examples:
+            Examples:
 
                 # list the CARD-100 issue and all its ancestors
                 $ jic list --self --up CARD-100
@@ -1515,21 +1788,21 @@ The structure of command line corresponds to the commonly used one:
 
     -U <issue_key_list>
     --up-from <issue_key_list>
-        process ancestors of the issue specified by <issue_key_list>;
-        the issue specified is not processed unless the "-s" option is
-        specified too
+        Process ancestors of the issue specified by <issue_key_list>;
+        the issue specified is not processed unless the "-s" switch is
+        specified too.
 
         <issue_key_list> is a comma-separated list of issue keys
 
-        unless there are link types specified by the option "L", all
-        link types are included in the traversal operation
+        Unless there are link types specified by the "-L" switch, all
+        link types are included in the traversal operation.
 
-        up means the following for different link types:
+        Up means the following for different link types:
         - implements: from implementor to its implemented issue;
         - depends: from the dependant to its dependee;
         - clones: from the the clone to its original.
 
-            examples:
+            Examples:
 
                 # list ancestors of the issue KEY-123 but not the issue
                 $ jic list --up KEY-123
@@ -1537,6 +1810,14 @@ The structure of command line corresponds to the commonly used one:
                 # list ancestors for KEY-123 and KEY-124 together with
                 # the issues
                 $ jic list -s -u KEY-123,KEY-124
+
+    -v
+    --verbose
+        Show verbose messages about the actions being performed.
+
+    -V
+    --version
+        Show jic's version information.
 
 
 4. jicML
@@ -1616,7 +1897,7 @@ issues.
 
     - a simple single line of text
 
-        the end of line character is denoting the end of line and is not
+        The end of line character is denoting the end of line and is not
         included into the value; it is possible to add line breaks using
         "\n" combination though:
 
@@ -1630,7 +1911,7 @@ issues.
 
     - a folded multi-line text
 
-        this is similar folding used for long email headers as defined
+        This is similar folding used for long email headers as defined
         in  rfc2822 - a long sequence of characters (including
         whitespace) is folded with all but the first line having one or
         more spaces as their first symbols; when such a value is parsed,
@@ -1640,7 +1921,7 @@ issues.
         all the new line characters are treated as a whitespace within
         the folded value and are replaced with spaces
 
-        examples:
+        Examples:
         -------- 8< -------- 8< -------- 8< -------- 8< --------
         Field:
             12
@@ -1659,10 +1940,10 @@ issues.
 
     - a multi-line value within the "{{{" and "}}}" value markers
 
-        in this case, anything that is located between the markers is
+        In this case, anything that is located between the markers is
         treated as the value with just the following exceptions:
 
-        if value starts with whitespace, such whitespace is stripped
+        If value starts with whitespace, such whitespace is stripped
         away - the following value
 
             -------- 8< -------- 8< -------- 8< -------- 8< --------
@@ -1676,7 +1957,7 @@ issues.
             {{{Some text}}}
             -------- 8< -------- 8< -------- 8< -------- 8< --------
 
-    a simple text will be parsed as a stream of jicML values - one per
+    A simple text will be parsed as a stream of jicML values - one per
     line - unless there are lines with leading spaces and some trailing
     non-whitespace characters, when value unfolding will be performing,
     consuming multiple whitespace prefixed lines into just one value
@@ -1694,6 +1975,18 @@ issues.
 
     EOF denotes the end of the data.
 
+    Example:
+
+            -------- 8< -------- 8< -------- 8< -------- 8< --------
+            Field name 1: This is a first textual value.
+            Field name 2: This is a second textual value, which is quite long and
+                is folded using leading space.
+            Field name 3: {{{
+            This is a third value,
+            which is wrapped into the value markers
+            and includes new line characters.}}}
+            -------- 8< -------- 8< -------- 8< -------- 8< --------
+
 
     4.4. Stream of jicML values
 
@@ -1706,6 +1999,18 @@ issues.
         ...
 
     EOF denotes the end of the data.
+
+    Example:
+
+            -------- 8< -------- 8< -------- 8< -------- 8< --------
+            This is a first textual value.
+            This is a second textual value, which is quite long and
+                is folded using leading space.
+            {{{
+            This is a third value,
+            which is wrapped into the value markers
+            and includes new line characters.}}}
+            -------- 8< -------- 8< -------- 8< -------- 8< --------
 
 
     4.3. Representing JIRA comments
@@ -1720,10 +2025,9 @@ issues.
 
 5. SHELL ENVIRONMENT INTEGRATION
 
-    In order to add flexibility jic also supports shell environment
-    variables. It is possible to provide values for jic options by using
-    environment variables with names corresponding to the following
-    pattern:
+    In order to provide more flexibility for its users jic also supports
+    shell environment variables. Using specially named variables it is
+    possible to provide values for jic options:
 
         JIC_O_<uppercase_name_of_the_option>
 
@@ -1741,13 +2045,23 @@ issues.
     Please note, all the non-alphanumerical characters should be
     replaced with underscore characters ("_").
 
-        Examples:
+    Examples:
 
-            $ JIC_F_REPORTER="another.person@host" jic create -e
+        $ JIC_F_REPORTER="another.person@host" jic create -e
 
     TODO: document
 
 
 6. SHELL COMMAND LINE COMPLETION
+
+    To allow a decent level of integration into the command shell, jic
+    is providing few levels of command line completion:
+        - subject of action completion;
+        - action completion;
+        - issue key completion (using the local cache and MRU list);
+        - comment ID completion (using the local cache and MRU list);
+        - issue and link type completion (using the local cache and MRU
+          list);
+        - list and template name completion.
 
     TODO: document
