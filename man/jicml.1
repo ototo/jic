@@ -1,0 +1,136 @@
+.TH JICML 1 "2014-10-06" "version 14.41.1-wip"
+
+.SH NAME
+jicML \- jic markup language
+
+.SH DESCRIPTION
+
+.B jicML
+is a text based markup language used to represent JIRA entities in a
+file, as well as for presenting those to the user. User input is
+expected to be in jicML format for the cases when providing data for
+performing operations on JIRA entities.
+
+.PP
+jicML can represent single values, name-value pairs, as well as streams
+of either of those. For the case of name-value stream, name-value pairs
+are parsed in chunks with corresponding entity's unique id playing a
+role of chunk boundary.
+
+.PP
+jicML representation is always UTF-8.
+
+.SH VALUE
+
+A single value can be represented in jicML using the following three
+formats:
+
+1. Single line short value
+
+The value starts at the first non-whitespace character and ends at the
+new line character (not including the latter).
+
+.nf
+.RS
+This is a simple value
+.RE
+.fi
+
+
+2. Long, optionally multi-line, value with whitespace folding
+
+The value starts at the first non-whitespace character and ends at the
+new line character (not including the latter).
+
+.nf
+.RS
+This is a long value that forces whitespace wrapping to get used in
+    order to fit it into a limited number of characters per line.\n
+    It also has two lines, which are separated by a new line symbol
+    encoded as a backslash followed by lowercase 'n'.
+This line does not belong to the value above (no leading ws).
+.RE
+.fi
+
+
+3. Long, optionally multi-line, value wrapped into markers
+
+.nf
+.RS
+{{{
+Previous line is a starting marker. The value can include any symbols,
+including whitespace and new lines (just like between this and previous
+line) and ends at the ending marker. New line character immediately
+following staring marker as well as the one immediately followed by
+ending marker are ignored. The next line contains the ending marker.
+}}}
+.RE
+.fi
+
+.nf
+.RS
+{{{This is a single line value with no new lines}}}
+.RE
+.fi
+
+
+.SH NAME-VALUE PAIR
+
+In this case, a value (in any of its supported formats) is prefixed with
+a name of the field and a colon (":"):
+
+.nf
+.RS
+Name: This is a simple value
+.RE
+.fi
+
+.nf
+.RS
+First name: This is a long value that forces whitespace wrapping to get
+    used in order to fit it into a limited number of characters per
+    line.\n It also has two lines, which are separated by a new line
+    symbol encoded as a backslash followed by lowercase 'n'.
+Second name: This line does not belong to the value above (no leading ws).
+.RE
+.fi
+
+.nf
+.RS
+A name: {{{
+Previous line has a starting marker. The value can include any symbols,
+inluding new lines (just like between this and previous line) and ends
+at the ending marker. New line character immediately following staring
+marker as well as the one immediately followed by ending marker are
+ignored. The next line contains the ending marker.
+}}}
+.RE
+.fi
+
+.nf
+.RS
+Another name: {{{This is a single line value with no new lines}}}
+.RE
+.fi
+
+.SH STREAM OF VALUES
+Sometimes there is a need to output or parse a set of values with no
+respective names being provided (e.g. when showing raw representation of
+a single issue comment and/or using that value to replace the current
+issue comment's contents). In such cases a stream contains a sequence of 
+
+.SH AUTHORS
+
+\fBjic\fR is maintained by its initial author:
+.nf
+.RS
+Serge Broslavsky <serge.broslavsky@linaro.org>
+.RE
+.fi
+.PP
+Contributions from others can be found by using \fBgit log\fR(1)
+command.
+
+.SH SEE ALSO
+
+TODO

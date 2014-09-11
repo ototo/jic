@@ -86,6 +86,13 @@ To install all the dependencies do the following as root:
     $ sudo pip install python-magic
 
 
+7. Put config file into ~/.jic/
 
-On the first attempt to run jic it will generate a default configuration
-file at ~/.jicrc and will try to suggest (or even help) you to edit it.
+8. Create symlinks for the porcelain mode commands
+
+    $ jic commands symlink
+
+
+On the first attempt to run jic it will try to import the existing
+config at ~/.jicrr. Please use the example config provided to create
+your own.

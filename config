@@ -1,0 +1,104 @@
+# JIC Configuration File Version 3
+#
+# Put this file into ~/.jic/ directory
+
+o.browser = 'iceweasel'
+o.editor = 'sensible-editor'
+
+# default caching mode: 'cached', 'offline', 'online'
+o.cache.mode = 'cached'
+
+# how long locally cached data is considered to be fresh
+o.cache.ttl = 3600
+
+# default CLI mode
+o.cl.mode = 'plumbing'
+
+# location for jic files (config, cache, etc)
+o.home.location = '~/.jic/'
+o.home.mode = 0700
+
+# should searches always be done using server in cached mode
+o.query.search_online = False
+
+# the default server to use
+o.server = 'default'
+
+# set to your server
+o.servers.default.url = 'https://some.host.org'
+
+# set to your user name
+o.servers.default.user = 'user.name@some.host.org'
+
+# set to your password or keep commented out to get a prompt
+#o.servers.default.password = ''
+
+# uncomment the items below for OAuth and set the cert to point to the
+# private key, then run the following command to perform the OAuth
+# dance:
+#  $ jic servers dance default
+#o.servers.default.oauth.cert = '~/your_private_key_for_jic.pem'
+#o.servers.default.oauth.secret = ''
+#o.servers.default.oauth.token = ''
+
+# how long locally cached data is considered to be fresh for this
+# specific server
+o.servers.default.cache.ttl = 7200
+
+# point this to a writable directory in path
+o.symlink.location = '~/bin/'
+o.symlink.mode = 0777
+
+# porcelain mode command definitions are below
+o.commands.jadd.aliases = 'add,ad,a'
+o.commands.jadd.help = 'add issue comments'
+o.commands.jadd.plumbing = 'comments add'
+
+o.commands.jedc.aliases = 'editc,edic,edc,ec'
+o.commands.jedc.help = 'edit issue comments'
+o.commands.jedc.plumbing = 'comments edit'
+
+o.commands.jdel.aliases = 'delete,delet,dele,del,de,d'
+o.commands.jdel.help = 'delete issue comments'
+o.commands.jdel.plumbing = 'comments delete'
+
+o.commands.jsh.aliases = 'show,sho,sh,s'
+o.commands.jsh.help = 'show essential issue information'
+o.commands.jsh.plumbing = 'issue show -p fields'
+
+o.commands.jsh.sc.comments.aliases = 'comment,commen,comme,comm,com,cmts,cmt,co,c'
+o.commands.jsh.sc.comments.help = 'show issue comments'
+o.commands.jsh.sc.comments.plumbing = 'issues show -p comments'
+
+o.commands.jsh.sc.fields.aliases = 'field,fiel,fie,fld,fi,fl,f'
+o.commands.jsh.sc.fields.help = 'show issue fields'
+o.commands.jsh.sc.fields.plumbing = 'issues show -p fields'
+
+o.commands.jsh.sc.history.aliases = 'histor,histo,hist,his,hi,h'
+o.commands.jsh.sc.history.help = 'show issue change history'
+o.commands.jsh.sc.history.plumbing = 'issues show -p history'
+
+o.commands.jsh.sc.links.aliases = 'link,lin,lnk,li,ln,l'
+o.commands.jsh.sc.links.help = 'show issue links'
+o.commands.jsh.sc.links.plumbing = 'issues show -p links'
+
+o.commands.jsh.sc.worklog.aliases = 'worklo,workl,work,wor,wo,w'
+o.commands.jsh.sc.worklog.help = 'show the time logged for the issue'
+o.commands.jsh.sc.worklog.plumbing = 'issues show -p worklog'
+
+o.commands.jsh.sc.all.aliases = 'al,a'
+o.commands.jsh.sc.all.help = 'show all information for the issue'
+o.commands.jsh.sc.all.plumbing = 'issues show -p all'
+
+o.commands.jls.aliases = 'list,lis,li,ls,l'
+o.commands.jls.help = 'list issues reported by or assigned to you'
+o.commands.jls.plumbing = 'issues list -f assignee=$me -f reporter=$me'
+
+o.commands.jls.sc.assigned.aliases = 'assigne,assign,assig,assi,ass,as,a'
+o.commands.jls.sc.assigned.help = 'list issues assigned to you'
+o.commands.jls.sc.assigned.plumbing = 'issues list -f assignee=$me'
+
+o.commands.jls.sc.reported.aliases = 'reporte,report,repor,repo,rep,re,r'
+o.commands.jls.sc.reported.help = 'list issues reported by you'
+o.commands.jls.sc.reported.plumbing = 'issues list -f reporter=$me'
+
