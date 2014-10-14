@@ -1258,8 +1258,7 @@ class Configuration (object):
                                             replace('\n','\\n')
                                 fo.write(u'    u\'%s\'%s\n' % (
                                     line, ('\\' if idx != max_idx else '')))
-                            fo.write
-                        else:
+                        elif value is not None:
                             fo.write(u'o.%s = %s\n' % (name, repr(value)))
                         del to_update[name]
                         replacing = True
@@ -2518,7 +2517,9 @@ class Cache (object):
                     lhs = new
             else:
                 lhs = resolve_field_name(self, lhs)
-            rhs = resolve_field_name(self, rhs)
+
+            if type(rhs) != list:
+                rhs = resolve_field_name(self, rhs)
 
             return (lhs, op, rhs)
 
@@ -3634,6 +3635,7 @@ class Template (object):
         self.print_issue_worklog = Template.Default.print_issue_worklog
         self.format_issue_worklog_item = Template.Default.format_issue_worklog_item
         self.format_server_list_item = Template.Default.format_server_list_item
+        self.format_server = Template.Default.format_server
 
         template = cfg.o.get('display.template')
         if template:
@@ -4261,6 +4263,28 @@ class Template (object):
             url = srv_def.get('url', 'N/A')
 
             return u'%s [%s]: %s' % (srv_name, flags, url)
+
+
+        @staticmethod
+        def format_server(tpl, srv_name, srv_def):
+            result = u'Server: %s\n' % srv_name
+            for name, value in srv_def.itertree():
+                if isinstance(value, basestring) \
+                and value.find('\n') != -1:
+                    lines = value.splitlines()
+                    max_idx = len(lines) - 1
+                    first = True
+                    for idx, line in enumerate(lines):
+                        if first:
+                            result += (u'%s = \\\n' % name)
+                            first = False
+                            # fall through
+                        result += (u'    \'%s\'%s\n' % (
+                                    line, ('\\' if idx != max_idx else '')))
+                else:
+                    result += (u'%s = %s\n' % (name, repr(value)))
+            return result
+
 
     # class Default
 
@@ -5037,9 +5061,13 @@ def cmd_servers_add(cfg, cache, tpl):
         for line in sys.stdin:
             args.append(line.strip())
 
+    if not args or len(args) < 1:
+        raise RuntimeError(
+            u'Please specify server name')
+
     if not args or len(args) < 2:
         raise RuntimeError(
-            u'Please specify server name and at least one option')
+            u'Please specify at least one option')
 
     server_name = args.pop(0)
 
@@ -5223,31 +5251,104 @@ def cmd_servers_dance(cfg, cache, tpl):
 
 
 def cmd_servers_delete(cfg, cache, tpl):
-    raise RuntimeError(u'Not implemented yet.')
+    server_names = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    servers = cfg.o.get('servers')
+    if servers is None:
+        raise RuntimeError(
+            u'No servers configured.')
+
+    first = True
+    to_delete = []
+    job = {}
+    for name in server_names:
+        server = servers.get(name)
+        if not server:
+            pre(u'Server \'%s\' is not known - skipped' % name)
+            continue
+        if first:
+            pre(u'The following servers are going to be deleted:\n')
+            first = False
+
+        pr(tpl.format_server(tpl, name, server))
+
+        to_delete.append(name)
+
+        for opt_name, value in server.itertree():
+            option = 'servers.%s.%s' % (name, opt_name)
+            job[option] = None
+
+    if not job:
+        pre(u'WARNING: Nothing to do.')
+        return 0
+
+    if Util.confirm(u'\nAre you sure you want to delete them? (type YES)',
+                                                        strict=True):
+        cfg.update_file(job)
+        pre(u'Deleted servers: %s' % (u', '.join(to_delete)))
+    else:
+        pre(u'Not deleting.')
+
+    return 0
 
 
 def cmd_servers_list(cfg, cache, tpl):
-    partial_names = \
-        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
-
     for srv_name, srv_def in cfg.o.get('servers').iteritems():
         pr(tpl.format_server_list_item(tpl, srv_name, srv_def))
 
 
 def cmd_servers_select(cfg, cache, tpl):
-    raise RuntimeError(u'Not implemented yet.')
+    server_names = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    if len(server_names) != 1:
+        raise RuntimeError(
+            u'Please specify one name of the server')
+
+    server_name = server_names[0]
+
+    server = cfg.o.get('servers.%s' % server_name)
+    if not server:
+        raise RuntimeError(
+            u'Server \'%s\' is not known.' % server_name)
+
+    job = { 'server': server_name }
+
+    cfg.update_file(job)
+
+    pre(u'Selected \'%s\' as the default server' % server_name)
+
+    return 0
 
 
 def cmd_servers_show(cfg, cache, tpl):
-    raise RuntimeError(u'Not implemented yet.')
+    server_names = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
+    servers = cfg.o.get('servers')
+    if servers is None:
+        raise RuntimeError(
+            u'No servers configured.')
 
-###############################################################################
-###############################################################################
-###############################################################################
-###############################################################################
-###############################################################################
-###############################################################################
+    first = True
+    to_show = []
+    for srv_name in server_names:
+        srv_def  = servers.get(srv_name)
+        if not srv_def :
+            pre(u'Server \'%s\' is not known - skipped' % srv_name)
+            continue
+        to_show.append((srv_name, srv_def ))
+
+    if not to_show:
+        pre(u'WARNING: Nothing to do.')
+        return 0
+
+    for srv_name, srv_def in to_show:
+        pr(tpl.format_server(tpl, srv_name, srv_def))
+
+    return 0
+
 
 OAUTH_APPLICATION_KEY='jic-tool'
 ASK_FOR_VALUE='<ask>'
