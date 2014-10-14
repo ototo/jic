@@ -5390,7 +5390,7 @@ def pr(string=u'', end=u'\n', flush=False):
 
 def main():
 
-    #signal.signal(signal.SIGINT, ctrl_c_handler)
+    signal.signal(signal.SIGINT, ctrl_c_handler)
 
     try:
         cfg = Configuration()
