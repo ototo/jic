@@ -931,6 +931,8 @@ class Namespace (object):
         """Update values in the namespace hierarchically using the
         values from `obj` and translating their names using `mapping` if
         present."""
+        if not obj:
+            return
         if type(obj) == dict:
             iterator = obj.iteritems()
         elif type(obj) == argparse.Namespace:
@@ -1118,7 +1120,7 @@ class Configuration (object):
 
     def __init__(self):
         # TODO: refactor - try and fix instead of check and try
-        self.o = self.set_defaults()
+        self.o = self.get_defaults()
 
         # get home location from env
         self.o.home.location = os.environ.get(
@@ -1141,18 +1143,15 @@ class Configuration (object):
 
         self.config_file = home + os.sep + Configuration.CONFIG_FILE_NAME
         if not os.access(self.config_file, os.F_OK):
-            # missing config - try to import the old one
-            old_options = self.parse_old_config_file()
-            self.o.update_from(old_options)
+            options = self.get_defaults()
+            options.update_from(self.parse_old_config_file())
+            self.create_new_file(options, self.config_file)
 
-            #   generate the default one
-            self.create_new_file(self.config_file)
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                editor = self.o.get('editor', 'sensible-editor')
+                Util.edit_file(editor, self.config_file)
 
-            #   TODO: call editor, exit
-        else:
-            options = self.load_file(self.config_file)
-            self.o.update_from(options)
-
+        self.o.update_from(self.load_file(self.config_file))
         self.update_from_environment()
 
 
@@ -1160,7 +1159,7 @@ class Configuration (object):
         self.o.learn(not freeze)
 
 
-    def set_defaults(self):
+    def get_defaults(self):
         defaults = Namespace(Configuration.defaults)
         defaults.set('symlink.location', Util.get_jic_location())
         return defaults
@@ -1182,8 +1181,10 @@ class Configuration (object):
                 return False, e.message
 
 
-    def create_new_file(self, config_file):
+    def create_new_file(self, options, config_file):
         try:
+            if not options:
+                options = self.o
             if not config_file:
                 home = os.path.expanduser(
                             os.path.expandvars(self.o.home.location))
@@ -1192,7 +1193,7 @@ class Configuration (object):
             f = open(config_file, 'w')
             f.write(Configuration.CONFIG_FILE_SIGNATURE +\
                     str(self.version) + '\n\n')
-            for path, value in self.o.itertree():
+            for path, value in options.itertree():
                 f.write(u'o.' + path + u' = ' + repr(value) + u'\n')
             f.close()
         except IOError, e:
@@ -2389,7 +2390,9 @@ class Cache (object):
 
         if not self.srv_name:
             # TODO: report error
-            raise RuntimeError('No server specified')
+            raise RuntimeError(
+                u'No server specified - please either '\
+                u'do `jic select server` or use -S switch')
 
         self.srv_cfg = cfg.o.get('servers.' + self.srv_name)
 
