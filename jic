@@ -1600,7 +1600,7 @@ class CommandLine (object):
             cfg.o.set('query.args', keys)
 
 
-    def execute(self, cache, template):
+    def execute(self, cfg):
         # TODO: implement
         if not self.command:
             return
@@ -1609,7 +1609,7 @@ class CommandLine (object):
                     self.command
         
         if action_type == 'python':
-            return action(self.cfg, cache, template)
+            return action(self.cfg)
         else:
             RuntimeError(
                 u'Don\'t know how to perform the command %s (%s)' % \
@@ -3012,9 +3012,9 @@ class Cache (object):
 
 
     def _cache_fields(self):
-        if self.mode in (Cache.MODE_OFFLINE,):
-            raise RuntimeError(
-                u'Can\'t get field information in offline mode')
+        #if self.mode in (Cache.MODE_OFFLINE,):
+            #raise RuntimeError(
+                #u'Can\'t get field information in offline mode')
 
         try:
             self.fields = [
@@ -3024,17 +3024,19 @@ class Cache (object):
                         'type': 'string',
                         'system': 'key',}
                 }, ]
-            self.fields.extend(self.get_jira().fields())
+            if self.mode != Cache.MODE_OFFLINE:
+                self.fields.extend(self.get_jira().fields())
             self.fields_ts = datetime.datetime.utcnow()
 
-            file_name = self.srv_home + os.sep + Cache.FIELD_CACHE
-            tmp_file_name = self.issue_home + os.sep + '.' + Cache.FIELD_CACHE
+            if self.mode != Cache.MODE_OFFLINE:
+                file_name = self.srv_home + os.sep + Cache.FIELD_CACHE
+                tmp_file_name = self.issue_home + os.sep + '.' + Cache.FIELD_CACHE
 
-            f = open(tmp_file_name, 'w')
-            f.write(self.fields_ts.strftime('%s\n' % Cache.TS_FORMAT))
-            f.write(json.dumps(self.fields, indent=2, sort_keys=True))
-            f.close()
-            os.rename(tmp_file_name, file_name)
+                f = open(tmp_file_name, 'w')
+                f.write(self.fields_ts.strftime('%s\n' % Cache.TS_FORMAT))
+                f.write(json.dumps(self.fields, indent=2, sort_keys=True))
+                f.close()
+                os.rename(tmp_file_name, file_name)
 
         except JIRAError, e:
             pre(u'ERROR: unable to retrieve field list '\
@@ -4576,7 +4578,10 @@ GET_COMMENTS_PROMPT = """\
 
 """
 
-def cmd_comments_add(cfg, cache, tpl):
+def cmd_comments_add(cfg):
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
     if cache.mode == Cache.MODE_OFFLINE:
         raise RuntimeError(
                 u'Can\'t add comments in offline mode yet')
@@ -4663,7 +4668,10 @@ def cmd_comments_add(cfg, cache, tpl):
     return 0
 
 
-def cmd_comments_delete(cfg, cache, tpl):
+def cmd_comments_delete(cfg):
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
     if cache.mode == Cache.MODE_OFFLINE:
         raise RuntimeError(
                 u'Can\'t delete comments in offline mode yet')
@@ -4740,7 +4748,10 @@ EDIT_COMMENTS_PROMPT = """\
 
 """
 
-def cmd_comments_edit(cfg, cache, tpl):
+def cmd_comments_edit(cfg):
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
     if cache.mode == Cache.MODE_OFFLINE:
         raise RuntimeError(
                 u'Can\'t edit comments in offline mode yet')
@@ -4824,9 +4835,12 @@ def cmd_comments_edit(cfg, cache, tpl):
     return 0
 
 
-def cmd_comments_list(cfg, cache, tpl):
+def cmd_comments_list(cfg):
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     issues = cache.get(
                 listed_issues,
@@ -4854,17 +4868,20 @@ def cmd_comments_list(cfg, cache, tpl):
     return 0
 
 
-def cmd_comments_reply(cfg, cache, tpl):
+def cmd_comments_reply(cfg):
     raise RuntimeError(u'Not implemented yet.')
     pre(u'WIP:cmd_comments_reply')
     return 0
 
 
-def cmd_comments_show(cfg, cache, tpl):
+def cmd_comments_show(cfg):
     listed_comments = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
     job = Util.parse_comment_ids(listed_comments)
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     for issue_key, comment_ids in job:
         issue = cache.get(issue_key)
@@ -4883,7 +4900,7 @@ def cmd_comments_show(cfg, cache, tpl):
     return 0
 
 
-def cmd_commands_symlink(cfg, cache, tpl):
+def cmd_commands_symlink(cfg):
     commands = cfg.o.get('commands')
     if not commands:
         raise RuntimeError(
@@ -4904,7 +4921,6 @@ def cmd_commands_symlink(cfg, cache, tpl):
         if e.errno != errno.EEXIST:
             raise e
 
-    pre(sys.argv[0])
     need_su = False
     for cmd_name in commands.iterkeys():
         symlink_name = symlink_location + os.sep + cmd_name
@@ -4926,15 +4942,18 @@ def cmd_commands_symlink(cfg, cache, tpl):
             u'to point to another location.')
 
 
-def cmd_configuration_edit(cfg, cache, tpl):
+def cmd_configuration_edit(cfg):
     editor = cfg.o.get('editor', 'sensible-editor')
     Util.edit_file(editor, cfg.config_file)
 
 
-def cmd_issues_fetch(cfg, cache, tpl):
+def cmd_issues_fetch(cfg):
 
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     cache.fetch(listed_issues,
                 cfg.o.get('query.down', False),
@@ -4952,17 +4971,22 @@ def cmd_issues_fetch(cfg, cache, tpl):
     return 0
 
 
-def cmd_issues_forget(cfg, cache, tpl):
+def cmd_issues_forget(cfg):
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    cache = Cache(cfg)
 
     cache.forget(listed_issues)
 
 
-def cmd_issues_list(cfg, cache, tpl):
+def cmd_issues_list(cfg):
 
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     issues = cache.get(
                 listed_issues,
@@ -4983,20 +5007,25 @@ def cmd_issues_list(cfg, cache, tpl):
     return 0
 
 
-def cmd_issues_pull(cfg, cache, tpl):
+def cmd_issues_pull(cfg):
+
+    cache = Cache(cfg)
 
     cache.pull()
 
     return 0
 
 
-def cmd_issues_show(cfg, cache, tpl):
+def cmd_issues_show(cfg):
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
     parts = cfg.o.get('query.parts', ('fields', 'comments'))
     all = 'all' in parts
     show_worklog = all or 'worklog' in parts
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     issues = cache.get(
                 listed_issues,
@@ -5043,7 +5072,7 @@ server_definition_values = {
     'secret':   'oauth.secret',
 }
 
-def cmd_servers_add(cfg, cache, tpl):
+def cmd_servers_add(cfg):
     """Arguments passed via command line:
         #1: 'name' - server name
         #2: 'url' - server url
@@ -5111,7 +5140,7 @@ def cmd_servers_add(cfg, cache, tpl):
     cfg.update_file(job)
 
 
-def cmd_servers_dance(cfg, cache, tpl):
+def cmd_servers_dance(cfg):
     args = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5149,9 +5178,9 @@ def cmd_servers_dance(cfg, cache, tpl):
                 raise RuntimeError(
                     u'Unable to load certificate: %s' % str(e))
     else:
-        cert = cache.srv_cfg.get('oauth.cert')
+        cert = cfg.o.get('oauth.cert')
 
-    if not cache.srv_cfg.get('oauth.cert'):
+    if not cert:
         raise RuntimeError(
             u'Server should have a certificate set to perform '\
             u'an OAuth dance.\nPlease see `man jic-config` for '\
@@ -5253,7 +5282,7 @@ def cmd_servers_dance(cfg, cache, tpl):
     return 0
 
 
-def cmd_servers_delete(cfg, cache, tpl):
+def cmd_servers_delete(cfg):
     server_names = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5296,12 +5325,15 @@ def cmd_servers_delete(cfg, cache, tpl):
     return 0
 
 
-def cmd_servers_list(cfg, cache, tpl):
+def cmd_servers_list(cfg):
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
     for srv_name, srv_def in cfg.o.get('servers').iteritems():
         pr(tpl.format_server_list_item(tpl, srv_name, srv_def))
 
 
-def cmd_servers_select(cfg, cache, tpl):
+def cmd_servers_select(cfg):
     server_names = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5325,7 +5357,7 @@ def cmd_servers_select(cfg, cache, tpl):
     return 0
 
 
-def cmd_servers_show(cfg, cache, tpl):
+def cmd_servers_show(cfg):
     server_names = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5333,6 +5365,9 @@ def cmd_servers_show(cfg, cache, tpl):
     if servers is None:
         raise RuntimeError(
             u'No servers configured.')
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
 
     first = True
     to_show = []
@@ -5400,10 +5435,7 @@ def main():
         cl = CommandLine(cfg)
         cfg.freeze()
 
-        cache = Cache(cfg)
-        tpl = Template(cfg, cache)
-
-        return cl.execute(cache, tpl)
+        return cl.execute(cfg)
 
     except RuntimeError, e:
         pre(u'ERROR: %s' % str(e))
