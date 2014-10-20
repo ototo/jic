@@ -2854,6 +2854,10 @@ class Cache (object):
             filter=None, query=None, worklogs=False):
         """Fetch issues from the server and update cache"""
 
+        if self.mode == Cache.MODE_OFFLINE:
+            raise RuntimeError(
+                u'Fetching is not possible in offline mode')
+
         if limit:
             try:
                 limit = int(limit)
