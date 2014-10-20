@@ -35,6 +35,7 @@ import oauth2 as oauth
 import datetime
 import json
 import errno
+import traceback
 
 try:
     from jira.client import JIRA
@@ -51,6 +52,12 @@ __version__ = '14.42.1-wip'
 
 
 JIC_PROGRAM_NAME = 'jic'
+
+# Verbosity levels
+VERBOSITY_QUIET     = 0
+VERBOSITY_ERRORS    = 1
+VERBOSITY_WARNINGS  = 2
+VERBOSITY_INFO      = 3
 
 
 class Util (object):
@@ -1116,6 +1123,9 @@ class Configuration (object):
         # should searches be done using server in `cached` mode
         # (alternative is to search in local cache only)
         'query.search_online': False,
+
+        # default message verbosity
+        'display.verbosity': VERBOSITY_WARNINGS,
     }
 
     def __init__(self):
@@ -1127,6 +1137,9 @@ class Configuration (object):
             'JIC_O_HOME_LOCATION', self.o.home.location)
         self.o.home.mode = Util.to_int(os.environ.get(
             'JIC_O_HOME_MODE', self.o.home.mode))
+        self.o.display.verbosity = Util.to_int(os.environ.get(
+            'JIC_O_DISPLAY_VERBOSITY', self.o.display.verbosity))
+        vset(self.o.display.verbosity)
 
         home = os.path.expanduser(
                     os.path.expandvars(self.o.home.location))
@@ -1139,19 +1152,31 @@ class Configuration (object):
 
         if not home_accessible:
             raise RuntimeError( 
-               'Home directory \'%s\' should have \'rwx\' mode' % self.o.home)
+               'Home directory \'%s\' should have \'rwx\' mode' %\
+                                                       self.o.home)
 
         self.config_file = home + os.sep + Configuration.CONFIG_FILE_NAME
         if not os.access(self.config_file, os.F_OK):
             options = self.get_defaults()
-            options.update_from(self.parse_old_config_file())
+            old_options = self.parse_old_config_file()
+            if old_options:
+                vpre(VERBOSITY_INFO, u'Imported old version\'s options')
+            options.update_from(old_options)
+            vpre(VERBOSITY_INFO, u'Creating new config file: %s' %\
+                                                    self.config_file)
             self.create_new_file(options, self.config_file)
 
             if sys.stdin.isatty() and sys.stdout.isatty():
                 editor = self.o.get('editor', 'sensible-editor')
+                vpre(VERBOSITY_INFO,
+                    u'Editing new config file \'%s\' in %s' %\
+                        (self.config_file, editor))
                 Util.edit_file(editor, self.config_file)
 
+        vpre(VERBOSITY_INFO, u'Reloading new config file \'%s\'' %\
+                                                    self.config_file)
         self.o.update_from(self.load_file(self.config_file))
+        vset(self.o.display.verbosity)
         self.update_from_environment()
 
 
@@ -1572,6 +1597,9 @@ class CommandLine (object):
         filter = Util.parse_filter_criteria(cfg.o.get('query.filter'))
         cfg.o.set('query.filter', filter)
 
+        # set verbosity
+        vset(cfg.o.get('display.verbosity', vget()))
+
         # get values requested from the stdin
 
         if cfg.o.get('query.get_keys', False):
@@ -1605,8 +1633,13 @@ class CommandLine (object):
         if not self.command:
             return
 
-        aliases, subcommands, (action_type, action), description = \
-                    self.command
+        aliases, subcommands, action_pair, description = self.command
+
+        if not action_pair:
+            raise RuntimeError(
+                u'Please specify subcommand for \'%s\'' % aliases[0])
+
+        action_type, action = action_pair
         
         if action_type == 'python':
             return action(self.cfg)
@@ -2500,8 +2533,6 @@ class Cache (object):
         self.search_online = self.srv_cfg.get('query.search_online',
                 self.search_online)
 
-        self.verbosity = cfg.o.get('display.verbosity', 0)
-
         if not self._load_fields() \
         or (Util.is_stale(self.ttl, self.fields_ts) \
                 and self.mode != Cache.MODE_OFFLINE):
@@ -2529,7 +2560,8 @@ class Cache (object):
         filter = resolve_field_name(self, cfg.o.get('query.filter'))
         cfg.o.set('query.filter', filter)
 
-        pre(u'Cache: server=%s, mode=%s' % (self.srv_name, self.mode))
+        vpre(VERBOSITY_INFO, u'Cache: server=%s, mode=%s' %\
+                                    (self.srv_name, self.mode))
 
 
     def get_jira(self):
@@ -2554,6 +2586,7 @@ class Cache (object):
                     'URL is missing for server \'%s\'' % self.srv_name)
 
             if oauth_token and oauth_secret:
+                vpre(VERBOSITY_INFO, u'INFO: Using OAuth to connect to JIRA')
                 if not oauth_cert:
                     raise RuntimeError(
                         'OAuth certificate is missing for server \'%s\'' %\
@@ -2571,6 +2604,7 @@ class Cache (object):
                 return self.jira
 
             if user and not password:
+                vpre(VERBOSITY_INFO, u'INFO: Using user/password to connect to JIRA')
                 if not sys.stdin.isatty():
                     raise RuntimeError(
                         u'Password or oauth token/secret are missing '\
@@ -2713,18 +2747,27 @@ class Cache (object):
                     queried_issues
 
         if order_by:
+            vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
             result = Util.sort_issues(result, order_by)
+            vpre(VERBOSITY_INFO, u' - done!')
 
+        # TODO: get worklogs from the cache
         if worklogs:
             updated = []
-            for issue in result:
+            max_idx = len(result)
+            for idx, issue in enumerate(result, 1):
                 ts, wl = self._load_worklogs(issue.key)
                 if Util.is_stale(self.ttl, ts) \
                 and self.mode in (Cache.MODE_ONLINE,):
+                    vpre(VERBOSITY_INFO,
+                        u'\rFetching worklogs: %s (%d/%d)%s' %\
+                            (issue.key, idx, max_idx, u' '*10),
+                        end=u'')
                     wl = self.get_jira().worklogs(issue.key)
                     self._cache_worklogs(issue, wl)
                 issue.worklogs = wl
                 updated.append(issue)
+            vpre(VERBOSITY_INFO, u' - done!')
             result = updated
 
         return result
@@ -2788,20 +2831,21 @@ class Cache (object):
             self.fetch(key, worklogs=True)
             fetched_issues.add(key)
             done += 1
-            if self.verbosity:
-                pre(u'\rPulling: %s (%d/%d)        ' % (
-                    key, done, total), end='')
+            vpre(VERBOSITY_INFO,
+                u'\rPulling: %s (%d/%d)%s' %\
+                    (key, done, total, u' '*10),
+                end='')
 
         for key in issues:
             if key not in fetched_issues:
                 self.fetch(key)
             done += 1
-            if self.verbosity:
-                pre(u'\rPulling: %s (%d/%d)        ' % (
-                    key, done, total), end='')
+            vpre(VERBOSITY_INFO,
+                u'\rPulling: %s (%d/%d)%s' %\
+                    (key, done, total, u' '*10),
+                end='')
 
-        if self.verbosity:
-            pre(u'\rDone: %d issues pulled.' % total)
+        vpre(VERBOSITY_INFO, u' - done!')
 
 
     def fetch(self, issues=None, go_down=False, go_up=False,
@@ -2888,16 +2932,25 @@ class Cache (object):
                     queried_issues
 
         if order_by:
+            vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
             result = Util.sort_issues(result, order_by)
+            vpre(VERBOSITY_INFO, u' - done!')
 
+        # TODO: get worklogs from the cache
         if worklogs:
             updated = []
-            for issue in result:
+            max_idx = len(result)
+            for idx, issue in enumerate(result, 1):
+                vpre(VERBOSITY_INFO,
+                    u'\rFetching worklogs: %s (%d/%d)%s' %\
+                        (issue.key, idx, max_idx, u' '*10),
+                    end=u'')
                 wl = self.get_jira().worklogs(issue.key)
                 self._cache_worklogs(issue, wl)
                 issue.worklogs = wl
                 updated.append(issue)
             result = updated
+            vpre(VERBOSITY_INFO, u' - done!')
 
         return result
 
@@ -2933,11 +2986,19 @@ class Cache (object):
             issue = issue.key
 
         try:
+            vpre(VERBOSITY_INFO,
+                u'Adding a comment for %s...' % issue,
+                end=u'')
             comment = self.get_jira().add_comment(issue, comment_body)
+            vpre(VERBOSITY_INFO, u' - done!')
         except JIRAError, e:
-            pre('ERROR: Unable to add comment for isue \'%s\': %s' % (\
+            pre('ERROR: Unable to add comment for issue \'%s\': %s' % (\
                     issue, str(e)))
+        vpre(VERBOSITY_INFO,
+            u'Fetching the update version of %s...' % issue,
+            end=u'')
         self.fetch(issue)
+        vpre(VERBOSITY_INFO, u' - done!')
 
 
     def get_field_id(self, partial_name):
@@ -2984,11 +3045,14 @@ class Cache (object):
         self.fields_ts = None
 
         try:
+            vpre(VERBOSITY_INFO,
+                u'Loading field information from the cache...', end=u'')
             f = open(file_name, 'r')
             timestamp = datetime.datetime.strptime(
                             f.readline().strip(), Cache.TS_FORMAT)
             raw = json.load(f)
             f.close()
+            vpre(VERBOSITY_INFO, u' - done!')
 
             self.fields = raw
             self.fields_ts = timestamp
@@ -2996,26 +3060,25 @@ class Cache (object):
         except IOError, e:
             # TODO: properly handle
             if e.errno != errno.ENOENT:
-                pre(u'ERROR: unable to load cached field information: %s' % str(e))
+                vpre(VERBOSITY_ERRORS,
+                    u'ERROR: unable to load cached field '\
+                    u'information: %s' % str(e))
             return False
 
         except Exception, e:
             # TODO: properly handle
             if e.errno != errno.ENOENT:
-                pre(u'ERROR: unable to load cached field information: %s' % str(e))
+                vpre(VERBOSITY_ERRORS,
+                    u'ERROR: unable to load cached field '\
+                    u'information: %s' % str(e))
             return False
 
         self._index_fields()
-
 
         return True
 
 
     def _cache_fields(self):
-        #if self.mode in (Cache.MODE_OFFLINE,):
-            #raise RuntimeError(
-                #u'Can\'t get field information in offline mode')
-
         try:
             self.fields = [
                 {   'id': 'key',
@@ -3025,6 +3088,9 @@ class Cache (object):
                         'system': 'key',}
                 }, ]
             if self.mode != Cache.MODE_OFFLINE:
+                vpre(VERBOSITY_INFO,
+                    u'Fetching field information...',
+                    end=u'')
                 self.fields.extend(self.get_jira().fields())
             self.fields_ts = datetime.datetime.utcnow()
 
@@ -3037,19 +3103,23 @@ class Cache (object):
                 f.write(json.dumps(self.fields, indent=2, sort_keys=True))
                 f.close()
                 os.rename(tmp_file_name, file_name)
+                vpre(VERBOSITY_INFO, u' - done!')
 
         except JIRAError, e:
-            pre(u'ERROR: unable to retrieve field list '\
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to fetch field list '\
                 u'from the server \'%s\': %s' % (self.srv_name, str(e)))
             return False
 
         except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to store field list: %s' % str(e))
             return False
-            # TODO: properly handle
 
         except Exception, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error fetching field list: %s' % str(e))
             return False
-            # TODO: properly handle
 
         self._index_fields()
 
@@ -3073,8 +3143,12 @@ class Cache (object):
 
 
     def _cache_issues(self, issues):
+        vpre(VERBOSITY_INFO,
+            u'Caching %d issues...' % len(issues),
+            end=u'')
         for issue in issues:
             self._cache_issue(issue)
+        vpre(VERBOSITY_INFO, u' - done!')
 
 
     def _cache_issue(self, issue):
@@ -3097,12 +3171,16 @@ class Cache (object):
             os.rename(tmp_file_name, file_name)
 
         except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to cache the issue %s: %s' %\
+                    (issue.key, str(e)))
             return False
-            # TODO: properly handle
 
         except Exception, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error caching the issue %s: %s' %\
+                    (issue.key, str(e)))
             return False
-            # TODO: properly handle
 
         return True
 
@@ -3134,14 +3212,19 @@ class Cache (object):
             os.rename(tmp_file_name, file_name)
             
         except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to cache worklogs for the issue %s: %s' %\
+                    (issue.key, str(e)))
             return False
-            # TODO: properly handle
 
         except Exception, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error caching worklogs for the issue %s: %s' %\
+                    (issue.key, str(e)))
             return False
-            # TODO: properly handle
 
         return True
+
 
     def _load_issue(self, issue_key):
         if not issue_key:
@@ -3171,12 +3254,16 @@ class Cache (object):
             return result
             
         except IOError, e:
-            # TODO: properly handle
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to load the issue %s: %s' %\
+                    (issue.key, str(e)))
             return (None, None)
 
         except Exception, e:
             # TODO: properly handle
-            pre(u'ERROR: %s' % str(e))
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error loading the issue %s: %s' %\
+                    (issue.key, str(e)))
             return (None, None)
 
         return None, None
@@ -3215,12 +3302,17 @@ class Cache (object):
             return result
             
         except IOError, e:
-            # TODO: properly handle
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to load worklogs for the issue %s: %s' %\
+                    (issue.key, str(e)))
             return (None, None)
 
         except Exception, e:
             # TODO: properly handle
-            return None
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error loading worklogs for the issue %s: %s' %\
+                    (issue.key, str(e)))
+            return (None, None)
 
         return None, None
 
@@ -3321,6 +3413,9 @@ class Cache (object):
                 jql += JQL.emit_order_by(order_by)
 
             try:
+                vpre(VERBOSITY_INFO,
+                    u'Fetching %d issues...' % len(issues_to_fetch),
+                    end=u'')
                 issues = self.get_jira().search_issues(
                                     jql, fields='*all',
                                     expand='changelog',
@@ -3328,12 +3423,17 @@ class Cache (object):
                                         (limit - result_issues) \
                                             if limit > 0 and not order_by \
                                             else -1)
+                vpre(VERBOSITY_INFO, u' - done!')
                 issues_to_fetch = []
+                vpre(VERBOSITY_INFO,
+                    u'Caching %d issues...' % len(issues),
+                    end=u'')
                 for issue in issues:
                     issue.worklogs = None
                     issues_to_fetch.append(issue)
                     self._cache_issue(issue)
                     result_issues += 1
+                vpre(VERBOSITY_INFO, u' - done!')
 
                 if go_down or go_up:
                     for linked_issue in self._get_linked_issues(
@@ -3361,12 +3461,16 @@ class Cache (object):
         result = fresh_issues + issues_to_fetch
 
         if order_by:
+            vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
             result = Util.sort_issues(result, order_by)
+            vpre(VERBOSITY_INFO, u' - done!')
 
         if filter:
+            vpre(VERBOSITY_INFO, u'Filtering result set...', end=u'')
             result = [issue for issue in result \
                         if Util.issue_matches_filter(
                             issue, self.variables, filter)]
+            vpre(VERBOSITY_INFO, u' - done!')
 
         return result[:limit] if limit > 0 else result
 
@@ -3389,19 +3493,27 @@ class Cache (object):
                 jql += u' %s' % JQL.emit_order_by(order_by)
 
             try:
+                vpre(VERBOSITY_INFO,
+                    u'Fetching issues using JQL: \'%s\'...' % jql,
+                    end=u'')
                 issues = self.get_jira().search_issues(
                                     jql, fields='*all',
                                     expand='changelog',
                                     maxResults=limit)
+                vpre(VERBOSITY_INFO, u' - done!')
+                vpre(VERBOSITY_INFO,
+                    u'Caching %d issues...' % len(issues),
+                    end=u'')
                 for issue in issues:
                     issue.worklogs = None
                     result.append(issue)
                     self._cache_issue(issue)
+                vpre(VERBOSITY_INFO, u' - done!')
 
             except JIRAError, e:
                 sc = int(Util.get_nested_value(e, 'status_code', 0))
                 if sc >= 400 and sc < 500:
-                    pre(u'ERROR: Issues not found.')
+                    vpre(VERBOSITY_ERRORS, u'ERROR: Issues not found.')
                     # TODO: should we abort in this case?
                     #return ()
                 else:
@@ -3409,19 +3521,24 @@ class Cache (object):
 
         elif source == Cache.SOURCE_CACHED_SERVER \
         or source == Cache.SOURCE_CACHE_ONLY:
-            #pr()
-            for key in self._cached_issues():
+            cached_issues = self._cached_issues()
+            vpre(VERBOSITY_INFO,
+                u'Loading issues using filter...',
+                end=u'')
+            for key in cached_issues:
                 _, issue = self._load_issue(key)
-                #pr(u'\r%s        ' % key, end='', flush=True)
                 if Util.issue_matches_filter(issue, self.variables, filter):
                     result.append(issue)
                     if limit > 0 \
                     and not order_by \
                     and len(result) >= limit:
                         break
+            vpre(VERBOSITY_INFO, u' - done!')
 
             if order_by:
+                vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
                 result = Util.sort_issues(result, order_by)
+                vpre(VERBOSITY_INFO, u' - done!')
 
         else:
             raise RuntimeError(u'Internal error: unknown mode')
@@ -3442,19 +3559,28 @@ class Cache (object):
             or (self.source == Cache.SOURCE_CACHED_SERVER \
                                     and self.search_online):
                 try:
+                    vpre(VERBOSITY_INFO,
+                        u'Fetching issues using JQL: \'%s\'...' % jql,
+                        end=u'')
                     issues = self.get_jira().search_issues(
                                         jql, fields='*all',
                                         expand='changelog',
                                         maxResults=limit)
+                    vpre(VERBOSITY_INFO, u' - done!')
+                    vpre(VERBOSITY_INFO,
+                        u'Caching %d issues...' % len(issues),
+                        end=u'')
                     for issue in issues:
                         issue.worklogs = None
                         result.append(issue)
                         self._cache_issue(issue)
+                    vpre(VERBOSITY_INFO, u' - done!')
 
                 except JIRAError, e:
                     sc = int(Util.get_nested_value(e, 'status_code', 0))
                     if sc >= 400 and sc < 500:
-                        pre(u'ERROR: Issue%s \'%s\' not found.' % ( \
+                        vpre(VERBOSITY_ERRORS,
+                            u'ERROR: Issue%s \'%s\' not found.' % ( \
                                 u's' if len(issues) > 1 else u'',
                                 u', '.join(issues)))
                         # TODO: should we abort in this case?
@@ -3517,6 +3643,9 @@ class Cache (object):
         queue = [(pivot_issue, traverse_up, traverse_down, depth), ]
         visited = set()
         result = []
+        vpre(VERBOSITY_INFO,
+            u'Traversing links for the issue %s...'  % pivot_issue,
+            end=u'')
         while queue:
             issue, go_up, go_down, depth = queue.pop(0)
 
@@ -3585,9 +3714,12 @@ class Cache (object):
                                         depth - 1 if depth else None))
 
             queue[0:0] = queue_chunk
+        vpre(VERBOSITY_INFO, u' - done!')
 
         if order_by:
+            vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
             result = Util.sort_issues(result, order_by)
+            vpre(VERBOSITY_INFO, u' - done!')
 
         return result
 
@@ -3603,7 +3735,7 @@ class Template (object):
     DEFAULT_MINIMAL_ITEM_WIDTH = 8
     DEFAULT_OUTPUT_WIDTH = 72
 
-    def __init__(self, cfg, cache):
+    def __init__(self, cfg, cache=None):
         self.cfg = cfg
         self.cache = cache
         self.home = os.path.expanduser(os.path.expandvars(
@@ -3643,14 +3775,19 @@ class Template (object):
         self.format_server = Template.Default.format_server
 
         template = cfg.o.get('display.template')
-        if template:
-            # load the template mentioned
+        if not template:
+            vpre(VERBOSITY_INFO, u'Using default template.')
+        else:
+            vpre(VERBOSITY_INFO,
+                u'Loading template: \'%s\'...' % template,
+                end=u'')
             filenames = ()
             for (dirpath, dirnames, filenames) in os.walk(self.home):
                 break
             if template not in filenames:
-                pre(u'WARNING: Template \'%s\' not found, using default one.' %\
-                    template)
+                vpre(VERBOSITY_WARNINGS,
+                    u'WARNING: Template \'%s\' not found, using default one.' %\
+                        template)
             else:
                 try:
                     options = Namespace()
@@ -3664,8 +3801,10 @@ class Template (object):
 
                 except Exception, e:
                     # TODO: report properly
-                    print(u'WARNING: Unable to load template \'%s\': %s' %\
-                        (template, unicode(e)))
+                    vpre(VERBOSITY_WARNINGS,
+                        u'WARNING: Unable to load template \'%s\': %s' %\
+                            (template, unicode(e)))
+            vpre(VERBOSITY_INFO, u' - done!')
 
         self.field_delimiter = cfg.o.get('display.field_delimiter',
                                     Template.DEFAULT_FIELD_DELIMITER)
@@ -3674,20 +3813,25 @@ class Template (object):
         self.output_width = cfg.o.get('display.output_width',
                                     Template.DEFAULT_OUTPUT_WIDTH)
 
-        self.field_by_id = cache.field_by_id
-        self.field_by_name = cache.field_by_name
+        if cache:
+            self.field_by_id = cache.field_by_id
+            self.field_by_name = cache.field_by_name
+        else:
+            self.field_by_id = {}
+            self.field_by_name = {}
 
         # adjust template using command line options
-        fields = cfg.o.get('display.fields')
-        if fields:
-            resolved_fields = []
-            for name in fields:
-                resolved_name = cache.get_field_id(name)
-                resolved_fields.append(
-                    resolved_name if resolved_name else name)
-            self.fields = resolved_fields
-        else:
-            self.fields = fields
+        if cache:
+            fields = cfg.o.get('display.fields')
+            if fields:
+                resolved_fields = []
+                for name in fields:
+                    resolved_name = cache.get_field_id(name)
+                    resolved_fields.append(
+                        resolved_name if resolved_name else name)
+                self.fields = resolved_fields
+            else:
+                self.fields = fields
 
 
     def get_output_width(self):
@@ -4250,7 +4394,7 @@ class Template (object):
 
 
         @staticmethod
-        def format_server_list_item(tpl, srv_name, srv_def):
+        def format_server_list_item(tpl, srv_name, srv_def, is_default):
             flags = []
             if srv_def.get('password'):
                 flags.append(u'pwd')
@@ -4267,12 +4411,15 @@ class Template (object):
 
             url = srv_def.get('url', 'N/A')
 
-            return u'%s [%s]: %s' % (srv_name, flags, url)
+            return u'%s %s [%s]: %s' % (u'*' if is_default else u' ',
+                                        srv_name, flags, url)
 
 
         @staticmethod
-        def format_server(tpl, srv_name, srv_def):
-            result = u'Server: %s\n' % srv_name
+        def format_server(tpl, srv_name, srv_def, is_default):
+            result = u'Server%s: %s\n' % (
+                    u' (default)' if is_default else u'',
+                    srv_name)
             for name, value in srv_def.itertree():
                 if isinstance(value, basestring) \
                 and value.find('\n') != -1:
@@ -4590,52 +4737,58 @@ def cmd_comments_add(cfg):
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
     if not listed_issues:
-        pre(u'ERROR: Please specify issue id(s) to add comment(s) to')
+        vpre(VERBOSITY_ERRORS, u'ERROR: Please specify issue '\
+                               u'id(s) to add comment(s) to')
         return 1
 
     job = []
     job_keys = set()
     for key in listed_issues:
         if not Util.is_issue_key(key):
-            pre(u'WARNING: Invalid issue key \'%s\' - skipped.' % key)
+            vpre(VERBOSITY_WARNINGS, u'WARNING: Invalid issue key '\
+                                     u'\'%s\' - skipped.' % key)
             continue
         if key not in job_keys:
             job.append(key)
             job_keys.add(key)
 
     if not job:
-        pre(u'WARNING: Nothing to do.')
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
         return 1
 
     issues = cache.get(job)
     if not issues:
-        pre(u'ERROR: Unable to retrieve issues: %s' % (u', '.join(job)))
+        vpre(VERBOSITY_ERRORS, u'ERROR: Unable to retrieve issues: '\
+                               u'%s' % (u', '.join(job)))
         return 1
 
     # editor based
     if cfg.o.get('cl.use_editor', False):
         text_for_editing = GET_COMMENTS_PROMPT % (u', '.join(job))
         editor = cfg.o.get('editor', 'sensible-editor')
+        vpre(VERBOSITY_INFO, u'Invoking %s to edit get comment(s)' %\
+                                                            editor)
         comment_bodies = Util.get_from_editor(cfg, editor,
                                               text_for_editing, 'text')
         if not comment_bodies \
         or comment_bodies == text_for_editing:
-            pre(u'Cancelled')
+            vpre(VERBOSITY_INFO, u'Cancelled')
             return 1
 
         strin = TextIterator(comment_bodies)
 
         _, comment_body = jicML.parse_nvpair(strin)
         if comment_body is None or not comment_body.strip():
-            pre(u'WARNING: Not adding an empty comment')
+            vpre(VERBOSITY_WARNINGS, u'WARNING: Not adding an empty comment')
             return 1
 
         for issue in issues:
             try:
                 cache.add_comment(issue, comment_body)
             except Exception, e:
-                pre(u'Unable to add new comment for issue '\
-                    u'\'%s\': %s' % (issue.key, str(e)))
+                vpre(VERBOSITY_ERRORS,
+                     u'ERROR: Unable to add new comment for '\
+                     u'issue \'%s\': %s' % (issue.key, str(e)))
 
             # if there are no more comments - use the last one
             _, next_comment = jicML.parse_nvpair(strin)
@@ -4650,15 +4803,16 @@ def cmd_comments_add(cfg):
         stdin = FileTextIterator(sys.stdin)
         _, comment_body = jicML.parse_nvpair(stdin)
         if comment_body is None or not comment_body.strip():
-            pre(u'ERROR: Not adding an empty comment')
+            vpre(VERBOSITY_ERRORS, u'ERROR: Not adding an empty comment')
             return 1
 
         for issue in issues:
             try:
                 cache.add_comment(issue, comment_body)
             except Exception, e:
-                pre(u'ERROR: Unable to add new comment for issue '\
-                    u'\'%s\': %s' % (issue.key, str(e)))
+                vpre(VERBOSITY_ERRORS,
+                     u'ERROR: Unable to add new comment for issue '\
+                     u'\'%s\': %s' % (issue.key, str(e)))
 
             # if there are no more comments - use the last one
             _, next_comment = jicML.parse_nvpair(stdin)
@@ -4690,7 +4844,7 @@ def cmd_comments_delete(cfg):
             raise RuntimeError(
                 u'Please pipe the key:comment pairs in or use -e switch.')
         else:
-            pre(u'Nothing to do')
+            vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do')
 
     pre(u'The following comments are going to be deleted:\n')
 
@@ -4698,13 +4852,15 @@ def cmd_comments_delete(cfg):
     to_delete_ids = set()
     for issue_key, comment_ids in job:
         if not comment_ids:
-            pre(u'WARNING: Will not delete all comments '\
+            vpre(VERBOSITY_WARNINGS,
+                u'WARNING: Will not delete all comments '\
                 u'for issue \'%s\'' % issue_key)
             continue
 
         issue = cache.get(issue_key)
         if not issue:
-            pre('WARNING: issue \'%s\' not found - skipped' % issue_key)
+            vpre(VERBOSITY_WARNINGS,
+                'WARNING: issue \'%s\' not found - skipped' % issue_key)
             continue
         issue = issue[0]
 
@@ -4720,7 +4876,7 @@ def cmd_comments_delete(cfg):
     pre()
 
     if not to_delete:
-        pre(u'WARNING: Nothing to do.')
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
         return 0
 
     if Util.confirm(u'Are you sure you want to delete them? (type YES)',
@@ -4729,11 +4885,12 @@ def cmd_comments_delete(cfg):
             try:
                 comment.delete()
             except Exception, e:
-                pre(u'Unable to delete comment %s:%s: %s' % (
-                    issue.key, comment.id, str(e)))
+                vpre(VERBOSITY_ERRORS,
+                    u'Unable to delete comment %s:%s: %s' % (
+                        issue.key, comment.id, str(e)))
         cache.fetch([issue.key for issue, _ in to_delete])
     else:
-        pre(u'Not deleting.')
+        vpre(VERBOSITY_WARNINGS, u'Not deleting.')
 
     return 0
 
@@ -4761,19 +4918,22 @@ def cmd_comments_edit(cfg):
 
     job = Util.parse_comment_ids(listed_comments)
 
-    #pre(u'The following comments are going to be edited:\n')
+    vpre(VERBOSITY_INFO,
+        u'The following comments are going to be edited:\n')
 
     to_edit = []
     to_edit_ids = set()
     for issue_key, comment_ids in job:
         if not comment_ids:
-            pre(u'WARNING: Will not edit all comments '\
+            vpre(VERBOSITY_WARNINGS,
+                u'WARNING: Will not edit all comments '\
                 u'for issue \'%s\'' %  issue_key)
             continue
 
         issue = cache.get(issue_key)
         if not issue:
-            pre('WARNING: issue \'%s\' not found - skipped' % \
+            vpre(VERBOSITY_WARNINGS,
+                u'WARNING: issue \'%s\' not found - skipped' % \
                     issue_key)
             continue
         issue = issue[0]
@@ -4783,11 +4943,12 @@ def cmd_comments_edit(cfg):
                 to_edit.append((issue, comment))
                 key = u'%s:%s' % (issue.key, comment.id)
                 if key not in to_edit_ids:
-                    #pr(tpl.format_issue_comments_item(tpl, issue,
-                                    #comment, show_issue_key=True))
+                    vpre(VERBOSITY_INFO,
+                            tpl.format_issue_comments_item(tpl, issue,
+                                comment, show_issue_key=True))
                     to_edit_ids.add(key)
 
-    #pr()
+    vpre(VERBOSITY_INFO, u'')
 
     if not to_edit:
         pre(u'WARNING: Nothing to do.')
@@ -4822,7 +4983,8 @@ def cmd_comments_edit(cfg):
                 data = { 'body': comment_body }
                 super(Comment, comment).update(**data)
             except Exception, e:
-                pre(u'ERROR: Unable to edit comment %s for issue '\
+                vpre(VERBOSITY_ERRORS,
+                    u'ERROR: Unable to edit comment %s for issue '\
                     u'\'%s\': %s' % (comment.id, issue.key, str(e)))
 
             # if there are no more comments - use the last one
@@ -4830,7 +4992,11 @@ def cmd_comments_edit(cfg):
             if next_comment is not None:
                 comment_body = next_comment
 
+        vpre(VERBOSITY_INFO,
+            u'Fetching %d updated issues...' % len(to_edit),
+            end=u'')
         cache.fetch([issue.key for issue, _ in to_edit])
+        vpre(VERBOSITY_INFO, u' - done!')
 
     return 0
 
@@ -4886,7 +5052,8 @@ def cmd_comments_show(cfg):
     for issue_key, comment_ids in job:
         issue = cache.get(issue_key)
         if not issue:
-            pre('WARNING: issue \'%s\' not found - skipped' % issue_key)
+            vpre(VERBOSITY_WARNINGS,
+                'WARNING: issue \'%s\' not found - skipped' % issue_key)
             continue
         issue = issue[0]
         for comment in issue.fields.comment.comments:
@@ -4924,7 +5091,8 @@ def cmd_commands_symlink(cfg):
     need_su = False
     for cmd_name in commands.iterkeys():
         symlink_name = symlink_location + os.sep + cmd_name
-        pre(u'Creating a symlink for %s...' % cmd_name)
+        vpre(VERBOSITY_INFO,
+            u'Creating a symlink for %s...' % cmd_name)
         try:
             if os.access(symlink_name, os.R_OK):
                 os.remove(symlink_name)
@@ -4932,14 +5100,17 @@ def cmd_commands_symlink(cfg):
         except OSError, e:
             if e.errno == errno.EPERM:
                 need_su = True
-            pre(u'ERROR: Unable to create a symlink '\
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: Unable to create a symlink '\
                 u'for \'%s\' at %s: %s' % (
                     cmd_name, symlink_name, str(e)))
 
     if need_su:
-        pre(u'Please repeat the same command as superuser '\
-            u'or change the symlink_location config option '\
-            u'to point to another location.')
+        vpre(VERBOSITY_ERRORS,
+            u'Please repeat the same command as superuser '\
+            u'or change the `symlink_location` config option '\
+            u'to point to a directory in your PATH that you '\
+            u'have permission to modify.')
 
 
 def cmd_configuration_edit(cfg):
@@ -5108,7 +5279,7 @@ def cmd_servers_add(cfg):
     for arg in args:
         name, _, value = arg.partition(u':')
         if name not in server_definition_values:
-            pre(u'ERROR: Unknown parameter: %s' % name)
+            vpre(VERBOSITY_ERRORS, u'ERROR: Unknown parameter: %s' % name)
             in_error = True
             continue
         server_def[name] = value
@@ -5237,7 +5408,8 @@ def cmd_servers_dance(cfg):
     client = oauth.Client(consumer)
     client.set_signature_method(RSA_SHA1_SignatureMethod())
 
-    pre('OAuth: Requesting token at %s' % request_token_url)
+    vpre(VERBOSITY_INFO,
+        'OAuth: Requesting token at %s' % request_token_url)
     res, raw = client.request(request_token_url, "POST")
     if res['status'] != '200':
         raise RuntimeError(
@@ -5291,46 +5463,64 @@ def cmd_servers_delete(cfg):
         raise RuntimeError(
             u'No servers configured.')
 
+    default = cfg.o.get('server', '')
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
     first = True
     to_delete = []
+    deleting_default = False
     job = {}
     for name in server_names:
         server = servers.get(name)
         if not server:
-            pre(u'Server \'%s\' is not known - skipped' % name)
+            vpre(VERBOSITY_WARNINGS, 
+                u'WARNING: Server \'%s\' is not known - skipped' % name)
             continue
         if first:
             pre(u'The following servers are going to be deleted:\n')
             first = False
 
-        pr(tpl.format_server(tpl, name, server))
+        pr(tpl.format_server(tpl, name, server, name == default))
 
         to_delete.append(name)
+
+        if name == default:
+            deleting_default = True
 
         for opt_name, value in server.itertree():
             option = 'servers.%s.%s' % (name, opt_name)
             job[option] = None
 
     if not job:
-        pre(u'WARNING: Nothing to do.')
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
         return 0
 
-    if Util.confirm(u'\nAre you sure you want to delete them? (type YES)',
-                                                        strict=True):
+    if Util.confirm(
+            u'\nAre you sure you want to delete them? (type YES)',
+            strict=True):
+        if deleting_default:
+            job['server'] = None
         cfg.update_file(job)
-        pre(u'Deleted servers: %s' % (u', '.join(to_delete)))
+        vpre(VERBOSITY_INFO, u'Deleted servers: %s' % (u', '.join(to_delete)))
+        if deleting_default:
+            vpre(VERBOSITY_WARNINGS,
+                u'WARNING: There is no default server set anymore.')
     else:
-        pre(u'Not deleting.')
+        vpre(VERBOSITY_INFO, u'Not deleting.')
 
     return 0
 
 
 def cmd_servers_list(cfg):
-    cache = Cache(cfg)
-    tpl = Template(cfg, cache)
+    tpl = Template(cfg)
+
+    default = cfg.o.get('server', '')
 
     for srv_name, srv_def in cfg.o.get('servers').iteritems():
-        pr(tpl.format_server_list_item(tpl, srv_name, srv_def))
+        pr(tpl.format_server_list_item(
+                tpl, srv_name, srv_def, srv_name == default))
 
 
 def cmd_servers_select(cfg):
@@ -5352,7 +5542,8 @@ def cmd_servers_select(cfg):
 
     cfg.update_file(job)
 
-    pre(u'Selected \'%s\' as the default server' % server_name)
+    vpre(VERBOSITY_INFO,
+        u'Selected \'%s\' as the default server' % server_name)
 
     return 0
 
@@ -5379,11 +5570,12 @@ def cmd_servers_show(cfg):
         to_show.append((srv_name, srv_def ))
 
     if not to_show:
-        pre(u'WARNING: Nothing to do.')
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
         return 0
 
     for srv_name, srv_def in to_show:
-        pr(tpl.format_server(tpl, srv_name, srv_def))
+        pr(tpl.format_server(
+                tpl, srv_name, srv_def, srv_name == default))
 
     return 0
 
@@ -5426,6 +5618,36 @@ def pr(string=u'', end=u'\n', flush=False):
     if flush:
         sys.stdout.flush()
 
+def vset(new_verbosity):
+    """Set current verbosity level."""
+    global verbosity
+    verbosity = new_verbosity
+
+
+def vget():
+    """Get current verbosity level."""
+    global verbosity
+    return verbosity
+
+
+def vpre(msg_verbosity, string=u'', end=u'\n', flush=False):
+    """Output the string to stderr if its verbosity does not exceed
+    the current verbosity."""
+    global verbosity
+    if msg_verbosity <= verbosity:
+        print(string.encode('utf-8'), file=sys.stderr, end=end)
+        if flush:
+            sys.stderr.flush()
+
+def vpr(string=u'', end=u'\n', flush=False):
+    """Output the string to stdout if its verbosity does not exceed
+    the current verbosity."""
+    global verbosity
+    if msg_verbosity <= verbosity:
+        print(string.encode('utf-8'), file=sys.stdout, end=end)
+        if flush:
+            sys.stdout.flush()
+
 def main():
 
     signal.signal(signal.SIGINT, ctrl_c_handler)
@@ -5438,12 +5660,13 @@ def main():
         return cl.execute(cfg)
 
     except RuntimeError, e:
-        pre(u'ERROR: %s' % str(e))
+        vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
         return 1
 
-    #except Exception, e:
-        #pre(u'ERROR: %s' % str(e))
-        #return 1
+    except Exception, e:
+        vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
+        vpre(VERBOSITY_ERRORS, traceback.format_exc())
+        return 1
 
 
 if __name__ == '__main__':
