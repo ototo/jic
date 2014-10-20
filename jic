@@ -4630,66 +4630,6 @@ class jicML (object):
 # class jicML
 
 
-def replace_variables_with_JQL(name):
-    if name == '$me':
-        return 'currentUser()'
-    return name
-
-def generate_JQL_filter(parsed_criteria):
-    ored_ones = []
-    for or_group in parsed_criteria:
-        ored_one = '('
-        anded_ones = []
-        for name, op, value in or_group:
-            value_needs_quotes = True
-            if value[0] == '$':
-                value = replace_variables_with_JQL(value)
-                value_needs_quotes = False
-            elif type(value) in (list, tuple):
-                values = []
-                for item in value:
-                    value_needs_quotes = True
-                    if item[0] == '$':
-                        item = replace_variables_with_JQL(item)
-                        value_needs_quotes = False
-                    if value_needs_quotes:
-                        values.append('"%s"' % item)
-                    else:
-                        values.append('%s' % item)
-                value = ', '.join(values)
-                value = '(%s)' % value
-                value_needs_quotes = False
-            if value_needs_quotes:
-                anded_ones.append('%s %s "%s"' % (name, op, value))
-            else:
-                anded_ones.append('%s %s %s' % (name, op, value))
-        ored_one += ' AND '.join(anded_ones)
-        ored_one += ')'
-        ored_ones.append(ored_one)
-    return ' OR '.join(ored_ones)
-
-
-def parse_order_by_criteria(order_by_criteria):
-    parsed_criteria = []
-    for chunk in order_by_criteria.strip().split(','):
-        parts = chunk.strip().split()
-        criterion = parts[0]
-        if len(parts) > 1:
-            if len(parts) > 2 \
-            or parts[1].lower() not in ('asc', 'desc'):
-                return ('invalid sorting order "%s"' % \
-                            ' '.join(parts[1:]),
-                        parsed_criteria)
-            criterion += ' %s' % parts[1].lower()
-        parsed_criteria.append(criterion)
-    return (None, parsed_criteria)
-
-
-def generate_JQL_ordering(parsed_criteria):
-    return 'ORDER BY ' + ', '.join(parsed_criteria)
-
-
-
 ################################################################
 ###  Commands  #################################################
 ################################################################
