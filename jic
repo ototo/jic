@@ -2691,8 +2691,6 @@ class Cache (object):
         if isinstance(issues, basestring):
             issues = (issues,)
 
-        #pr(u'Cache:get(%s)' % (u', '.join(issues)), flush=True)
-
         ts_now = datetime.datetime.utcnow()
 
         listed_issues = []
@@ -2869,11 +2867,8 @@ class Cache (object):
         link_types = [lt.strip() for lt in link_types if lt] \
                    if link_types else None
 
-        # 1. process `issues`, `filter` and `order_by`
         if isinstance(issues, basestring):
             issues = (issues,)
-
-        #pr(u'Cache:get(%s)' % (u', '.join(issues)), flush=True)
 
         ts_now = datetime.datetime.utcnow()
 
@@ -4886,6 +4881,7 @@ def cmd_comments_edit(cfg):
         # generate textual representation of comments
         # invoke editor
         # parse edited file
+        # show changes and get confirmation
         # apply changes if any
 
     # stdin based
@@ -5044,7 +5040,6 @@ def cmd_configuration_edit(cfg):
 
 
 def cmd_issues_fetch(cfg):
-
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5077,7 +5072,6 @@ def cmd_issues_forget(cfg):
 
 
 def cmd_issues_list(cfg):
-
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5104,7 +5098,6 @@ def cmd_issues_list(cfg):
 
 
 def cmd_issues_pull(cfg):
-
     cache = Cache(cfg)
 
     cache.pull()
