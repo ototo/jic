@@ -5549,16 +5549,24 @@ def cmd_servers_select(cfg):
 
 
 def cmd_servers_show(cfg):
-    server_names = \
-        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
-
     servers = cfg.o.get('servers')
     if servers is None:
         raise RuntimeError(
             u'No servers configured.')
 
-    cache = Cache(cfg)
-    tpl = Template(cfg, cache)
+    server_names = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    if not server_names:
+        default = cfg.o.get('server')
+        if not default:
+            raise RuntimeError(
+                u'No server name provided and no default server set')
+        server_names = ( default, )
+
+    tpl = Template(cfg)
+
+    default = cfg.o.get('server', '')
 
     first = True
     to_show = []
