@@ -2964,7 +2964,7 @@ class Cache (object):
         """Push cached changes to the server"""
         # TODO: implement
         raise RuntimeError(
-            u'Fetching is not implemented in this version of jic')
+            u'Pushing is not implemented in this version of jic')
 
 
     def forget(self, issues=None, down_from=None, up_from=None,
@@ -3594,30 +3594,11 @@ class Cache (object):
 
             elif self.source == Cache.SOURCE_CACHED_SERVER \
             or self.source == Cache.SOURCE_CACHE_ONLY:
-                filter, order_by = JQL.parse_jql_statement(jql)
-                if not filter:
-                    raise RuntimeError(
-                        u'Unable to process an empty JQL query')
-                for key in self._cached_issues():
-                    _, issue = self._load_issue(key)
-                    if Util.issue_matches_filter(issue, self.variables, filter):
-                        result.append(issue)
-                        if limit > 0 \
-                        and not order_by \
-                        and len(result) >= limit:
-                            break
-
-                if order_by:
-                    result = Util.sort_issues(result, order_by)
+                raise RuntimeError(
+                    u'Offline JQL queries are not supported yet.')
 
             else:
                 raise RuntimeError(u'Internal error: unknown mode')
-
-        if self.source == Cache.SOURCE_CACHE_ONLY \
-        or (self.source == Cache.SOURCE_CACHED_SERVER \
-                                and not self.search_online):
-            if order_by:
-                result = Util.sort_issues(result, order_by)
 
         return result[:limit] if limit > 0 else result
 
