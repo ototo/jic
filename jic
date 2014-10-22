@@ -1877,10 +1877,10 @@ class CommandLine (object):
                         None,
                         ('python', cmd_issues_fetch),
                         'cache issues locally'),
-                    #(('fields', 'field', 'fiel', 'fie', 'fi'),
-                        #None,
-                        #('python', lambda cfg, cache, tpl: print('issues:fields')),
-                        #'show issues\' fields'),
+                    (('fields', 'field', 'fiel', 'fie', 'fi'),
+                        None,
+                        ('python', cmd_issues_fields),
+                        'show issues\' fields'),
                     #(('forget', 'forge', 'forg', 'for', 'fo'),
                         #None,
                         #('python', cmd_issues_forget),
@@ -3753,6 +3753,8 @@ class Template (object):
         self.format_issue_worklog_item = Template.Default.format_issue_worklog_item
         self.format_server_list_item = Template.Default.format_server_list_item
         self.format_server = Template.Default.format_server
+        self.format_issue_field_meta = \
+                        Template.Default.format_issue_field_meta
 
         template = cfg.o.get('display.template')
         if not template:
@@ -4418,6 +4420,18 @@ class Template (object):
             return result
 
 
+        @staticmethod
+        def format_issue_field_meta(tpl, field_meta):
+            val_type = Util.get_nested_value(
+                            field_meta, 'schema.type', u'N/A')
+            if val_type == 'array':
+                val_type += u':%s' % Util.get_nested_value(
+                            field_meta, 'schema.items', u'N/A')
+            return u'- %s (%s): %s' % (
+                    field_meta.get('name'),
+                    field_meta.get('id'),
+                    val_type)
+
     # class Default
 
 # class Template
@@ -5060,6 +5074,33 @@ def cmd_issues_fetch(cfg):
                 cfg.o.get('query.jql'))
 
     return 0
+
+
+def cmd_issues_fields(cfg):
+    partial_names = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    cache = Cache(cfg)
+    tpl = Template(cfg, cache)
+
+    to_match = [name.lower() for name in partial_names]
+
+    matched = False
+    for field in cache.fields.field_meta:
+        if partial_names:
+            id = field.get('id').lower()
+            name = field.get('name').lower()
+            for part_name in to_match:
+                if id.find(part_name) != -1 \
+                or name.find(part_name) != -1:
+                    matched = True
+                    pr(tpl.format_issue_field_meta(tpl, field))
+                    break
+        else:
+            matched = True
+            pr(tpl.format_issue_field_meta(tpl, field))
+    if not matched:
+        pr(u'No fields matched: %s' % (u', '.join(partial_names)))
 
 
 def cmd_issues_forget(cfg):
