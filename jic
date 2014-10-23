@@ -9,9 +9,7 @@
 #
 
 # Backlog:
-# [ ] User.emailAddress != User.name
 # [ ] add URL to every fetched issue
-# [ ] proper support for field types
 # [ ] matching field names for flter for online/offline
 
 from __future__ import print_function
@@ -36,6 +34,7 @@ import datetime
 import json
 import errno
 import traceback
+from collections import OrderedDict
 
 try:
     from jira.client import JIRA
@@ -154,7 +153,7 @@ class Util (object):
                 break
 
             try:
-                if item in current.__dict__:
+                if hasattr(current, '__dict__') and item in current.__dict__:
                     current = current.__dict__.get(item)
                 elif item in current:
                     current = current.get(item)
@@ -164,7 +163,7 @@ class Util (object):
                 return default
 
         try:
-            if item in current.__dict__:
+            if hasattr(current, '__dict__') and item in current.__dict__:
                 return current.__dict__.get(item)
             else:
                 return current.get(item)
@@ -457,6 +456,45 @@ class Util (object):
                     continue
 
         return (None, sub_expressions)
+
+
+    @staticmethod
+    def generate_issue_diff_job(original, updated, field_meta):
+        batch_job = []
+        updated_issues = {}
+        for issue in updated:
+            updated_issues[issue['key']] = issue
+
+        for o_issue in original:
+            issue_job = {}
+            if o_issue.key not in updated_issues:
+                continue
+
+            for name, o_value in o_issue.fields.__dict__.iteritems():
+                u_value = updated.fields.__dict__.get(name)
+                if not Util.are_field_values_equal(
+                                o_value, u_value, field_meta):
+                    field_job = Util.generate_field_diff_job(
+                                        name, o_value, u_value,
+                                        field_meta)
+                    issue_job[field_job[0]] = field_job[1]
+            if issue_job:
+                batch_job.append((o_issue.key, issue_job))
+
+        return batch_job
+
+
+    @staticmethod
+    def generate_field_diff_job(name, original_value, updated_value,
+                                field_meta):
+        # TODO: implement
+        return (name, updated_value)
+
+
+    @staticmethod
+    def are_field_values_equal(lhs, rhs, field_meta):
+        # TODO: implement
+        return False
 
 
     @staticmethod
@@ -1094,7 +1132,7 @@ class Configuration (object):
     map_old_options_to_new = {} # initialized after the class definition
 
     defaults = {
-        # FS location for configuration ifle and other data
+        # FS location for configuration file and other data
         'home.location': '~/.jic/',
 
         # FS mode to be used for home FS location
@@ -1111,7 +1149,7 @@ class Configuration (object):
         #   'cached'    - query from the cache if not stale, query from
         #                 the server otherwise
         #   'offline'   - always query from the cache
-        'cache.mode': 'cached',
+        'cache.mode': 'online',
 
         # cache TTL in seconds
         'cache.ttl': 3600,
@@ -1126,6 +1164,66 @@ class Configuration (object):
 
         # default message verbosity
         'display.verbosity': VERBOSITY_WARNINGS,
+    }
+
+    new_file_defaults = {
+        # porcelain mode command definitions
+        'commands.jadd.aliases': 'add,ad,a',
+        'commands.jadd.help': 'add issue comments',
+        'commands.jadd.plumbing': 'comments add',
+
+        'commands.jedc.aliases': 'editc,edic,edc,ec',
+        'commands.jedc.help': 'edit issue comments',
+        'commands.jedc.plumbing': 'comments edit',
+
+        'commands.jdel.aliases': 'delete,delet,dele,del,de,d',
+        'commands.jdel.help': 'delete issue comments',
+        'commands.jdel.plumbing': 'comments delete',
+
+        'commands.jsh.aliases': 'show,sho,sh,s',
+        'commands.jsh.help': 'show essential issue information',
+        'commands.jsh.plumbing': 'issue show -p fields',
+
+        'commands.jsh.sc.comments.aliases':
+        'comment,commen,comme,comm,com,cmts,cmt,co,c',
+        'commands.jsh.sc.comments.help': 'show issue comments',
+        'commands.jsh.sc.comments.plumbing': 'issues show -p comments',
+
+        'commands.jsh.sc.fields.aliases': 'field,fiel,fie,fld,fi,fl,f',
+        'commands.jsh.sc.fields.help': 'show issue fields',
+        'commands.jsh.sc.fields.plumbing': 'issues show -p fields',
+
+        'commands.jsh.sc.history.aliases': 'histor,histo,hist,his,hi,h',
+        'commands.jsh.sc.history.help': 'show issue change history',
+        'commands.jsh.sc.history.plumbing': 'issues show -p history',
+
+        'commands.jsh.sc.links.aliases': 'link,lin,lnk,li,ln,l',
+        'commands.jsh.sc.links.help': 'show issue links',
+        'commands.jsh.sc.links.plumbing': 'issues show -p links',
+
+        'commands.jsh.sc.all.aliases': 'al,a',
+        'commands.jsh.sc.all.help': 'show all information for the issue',
+        'commands.jsh.sc.all.plumbing': 'issues show -p all',
+
+        'commands.jls.aliases': 'list,lis,li,ls,l',
+        'commands.jls.help': 'list issues reported by or assigned to you',
+        'commands.jls.plumbing': 'issues list -f assignee=$me -f reporter=$me',
+
+        'commands.jls.sc.assigned.aliases': 'assigne,assign,assig,assi,ass,as,a',
+        'commands.jls.sc.assigned.help': 'list issues assigned to you',
+        'commands.jls.sc.assigned.plumbing': 'issues list -f assignee=$me',
+
+        'commands.jls.sc.reported.aliases': 'reporte,report,repor,repo,rep,re,r',
+        'commands.jls.sc.reported.help': 'list issues reported by you',
+        'commands.jls.sc.reported.plumbing': 'issues list -f reporter=$me',
+
+        'commands.jed.aliases': 'edit,edi,ed,e',
+        'commands.jed.help': 'edit an existing issue',
+        'commands.jed.plumbing': 'issues edit -e',
+
+        'commands.jo.aliases': 'open,ope,op,o',
+        'commands.jo.help': 'open issues in a browser',
+        'commands.jo.plumbing': 'issues open',
     }
 
     def __init__(self):
@@ -1162,6 +1260,8 @@ class Configuration (object):
             if old_options:
                 vpre(VERBOSITY_INFO, u'Imported old version\'s options')
             options.update_from(old_options)
+            new_file_options = Namespace(Configuration.new_file_defaults)
+            options.update_from(new_file_options)
             vpre(VERBOSITY_INFO, u'Creating new config file: %s' %\
                                                     self.config_file)
             self.create_new_file(options, self.config_file)
@@ -1869,10 +1969,10 @@ class CommandLine (object):
                         #None,
                         #('python', lambda cfg, cache, tpl: print('issues:delete')),
                         #'delete existing issues'),
-                    #(('edit', 'edi', 'ed', 'e'),
-                        #None,
-                        #('python', lambda cfg, cache, tpl: print('issues:edit')),
-                        #'edit existing issues'),
+                    (('edit', 'edi', 'ed', 'e'),
+                        None,
+                        ('python', cmd_issues_edit),
+                        'edit existing issues'),
                     (('fetch', 'fetc', 'fet', 'fe', 'f'),
                         None,
                         ('python', cmd_issues_fetch),
@@ -1897,6 +1997,10 @@ class CommandLine (object):
                         #None,
                         #('python', lambda cfg, cache, tpl: print('issues:move')),
                         #'move issues between projects'),
+                    (('open', 'ope', 'op', 'o'),
+                        None,
+                        ('python', cmd_issues_open),
+                        'open issues in a web browser'),
                     (('pull', 'pul', 'p'),
                         None,
                         ('python', cmd_issues_pull),
@@ -2208,7 +2312,7 @@ class CommandLine (object):
             help='process children of the parent(s) specified')
         parser.add_argument('-e', '--editor', action='store_true',
             dest='use_editor', default=None,
-            help='process all items/parts; see `man jic` for details')
+            help='use editor to provide information to jic')
         parser.add_argument('-f', '--filter', nargs=1, action='append',
             dest='filter', metavar='CRITERIA_LIST',
             help='only process items matching the criteria')
@@ -2380,6 +2484,7 @@ class Cache (object):
 
     HOME = 'cache'
     ISSUE_CACHE = 'issues'
+    ISSUE_EDITMETA_CACHE = 'editmeta'
     WORKLOG_CACHE = 'worklogs'
     FIELD_CACHE = 'fields'
 
@@ -2409,9 +2514,9 @@ class Cache (object):
     SOURCE_CACHED_SERVER = 1
     SOURCE_SERVER = 2
 
-
     # level 1 cache (level 2 being the FS storage)
     issue_L1 = {}
+    editmeta_L1 = {}
     worklog_L1 = {}
 
 
@@ -2476,6 +2581,21 @@ class Cache (object):
             raise RuntimeError( 
                'Cache directory \'%s\' should have \'rwx\' mode' %\
                self.issue_home)
+
+        self.editmeta_home = self.srv_home + os.sep \
+                           + Cache.ISSUE_EDITMETA_CACHE
+
+        editmeta_home_exists, editmeta_home_accessible = \
+            Util.ensure_dir_access(
+                self.editmeta_home, os.R_OK | os.W_OK | os.X_OK, 0700)
+
+        if editmeta_home_exists != True:
+            raise editmeta_home_exists
+
+        if not editmeta_home_accessible:
+            raise RuntimeError( 
+               'Cache directory \'%s\' should have \'rwx\' mode' %\
+               self.editmeta_home)
 
         self.worklog_home = self.srv_home + os.sep + Cache.WORKLOG_CACHE
 
@@ -2586,7 +2706,7 @@ class Cache (object):
                     'URL is missing for server \'%s\'' % self.srv_name)
 
             if oauth_token and oauth_secret:
-                vpre(VERBOSITY_INFO, u'INFO: Using OAuth to connect to JIRA')
+                #vpre(VERBOSITY_INFO, u'INFO: Using OAuth to connect to JIRA')
                 if not oauth_cert:
                     raise RuntimeError(
                         'OAuth certificate is missing for server \'%s\'' %\
@@ -2604,7 +2724,7 @@ class Cache (object):
                 return self.jira
 
             if user and not password:
-                vpre(VERBOSITY_INFO, u'INFO: Using user/password to connect to JIRA')
+                #vpre(VERBOSITY_INFO, u'INFO: Using user/password to connect to JIRA')
                 if not sys.stdin.isatty():
                     raise RuntimeError(
                         u'Password or oauth token/secret are missing '\
@@ -2817,7 +2937,7 @@ class Cache (object):
 
         fetched_issues = set()
 
-        done = 0
+        done = 1
 
         wls = self._cached_worklogs()
         total = len(wls)
@@ -2826,22 +2946,22 @@ class Cache (object):
         total += len(issues)
 
         for key in wls:
+            vpre(VERBOSITY_INFO,
+                u'\rPulling: %s (%d/%d)%s' %\
+                    (key, done, total, u' '*10),
+                end='')
             self.fetch(key, worklogs=True)
             fetched_issues.add(key)
             done += 1
+
+        for key in issues:
             vpre(VERBOSITY_INFO,
                 u'\rPulling: %s (%d/%d)%s' %\
                     (key, done, total, u' '*10),
                 end='')
-
-        for key in issues:
             if key not in fetched_issues:
                 self.fetch(key)
             done += 1
-            vpre(VERBOSITY_INFO,
-                u'\rPulling: %s (%d/%d)%s' %\
-                    (key, done, total, u' '*10),
-                end='')
 
         vpre(VERBOSITY_INFO, u' - done!')
 
@@ -2931,25 +3051,39 @@ class Cache (object):
                     queried_issues
 
         if order_by:
-            vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
+            #vpre(VERBOSITY_INFO, u'Sorting result set...', end=u'')
             result = Util.sort_issues(result, order_by)
-            vpre(VERBOSITY_INFO, u' - done!')
+            #vpre(VERBOSITY_INFO, u' - done!')
 
-        # TODO: get worklogs from the cache
+        # fetch editmeta
+        updated = []
+        max_idx = len(result)
+        for idx, issue in enumerate(result, 1):
+            #vpre(VERBOSITY_INFO,
+                #u'\rFetching editmeta: %s (%d/%d)%s' %\
+                    #(issue.key, idx, max_idx, u' '*10),
+                #end=u'')
+            em = self.get_jira().editmeta(issue.key)
+            self._cache_editmeta(issue, em)
+            issue.editmeta = em
+            updated.append(issue)
+        result = updated
+        #vpre(VERBOSITY_INFO, u' - done!')
+
         if worklogs:
             updated = []
             max_idx = len(result)
             for idx, issue in enumerate(result, 1):
-                vpre(VERBOSITY_INFO,
-                    u'\rFetching worklogs: %s (%d/%d)%s' %\
-                        (issue.key, idx, max_idx, u' '*10),
-                    end=u'')
+                #vpre(VERBOSITY_INFO,
+                    #u'\rFetching worklogs: %s (%d/%d)%s' %\
+                        #(issue.key, idx, max_idx, u' '*10),
+                    #end=u'')
                 wl = self.get_jira().worklogs(issue.key)
                 self._cache_worklogs(issue, wl)
                 issue.worklogs = wl
                 updated.append(issue)
             result = updated
-            vpre(VERBOSITY_INFO, u' - done!')
+            #vpre(VERBOSITY_INFO, u' - done!')
 
         return result
 
@@ -3053,7 +3187,7 @@ class Cache (object):
             f.close()
             vpre(VERBOSITY_INFO, u' - done!')
 
-            self.fields = raw
+            self.fields = FieldMetadata(raw)
             self.fields_ts = timestamp
 
         except IOError, e:
@@ -3072,8 +3206,6 @@ class Cache (object):
                     u'information: %s' % str(e))
             return False
 
-        self._index_fields()
-
         return True
 
 
@@ -3091,6 +3223,7 @@ class Cache (object):
                     u'Fetching field information...',
                     end=u'')
                 self.fields.extend(self.get_jira().fields())
+            self.fields = FieldMetadata(self.fields)
             self.fields_ts = datetime.datetime.utcnow()
 
             if self.mode != Cache.MODE_OFFLINE:
@@ -3099,7 +3232,7 @@ class Cache (object):
 
                 f = open(tmp_file_name, 'w')
                 f.write(self.fields_ts.strftime('%s\n' % Cache.TS_FORMAT))
-                f.write(json.dumps(self.fields, indent=2, sort_keys=True))
+                f.write(json.dumps(self.fields.field_meta, indent=2, sort_keys=True))
                 f.close()
                 os.rename(tmp_file_name, file_name)
                 vpre(VERBOSITY_INFO, u' - done!')
@@ -3120,34 +3253,16 @@ class Cache (object):
                 u'ERROR: error fetching field list: %s' % str(e))
             return False
 
-        self._index_fields()
-
         return True
 
 
-    def _index_fields(self):
-        """Build indexes for field information lookup"""
-
-        self.field_by_id = {}
-        self.field_by_name = {}
-
-        if self.fields:
-            for field in self.fields:
-                id = field.get('id')
-                if id:
-                    self.field_by_id[id] = field
-                name = field.get('name')
-                if name:
-                    self.field_by_name[name] = field
-
-
     def _cache_issues(self, issues):
-        vpre(VERBOSITY_INFO,
-            u'Caching %d issues...' % len(issues),
-            end=u'')
+        #vpre(VERBOSITY_INFO,
+            #u'Caching %d issues...' % len(issues),
+            #end=u'')
         for issue in issues:
             self._cache_issue(issue)
-        vpre(VERBOSITY_INFO, u' - done!')
+        #vpre(VERBOSITY_INFO, u' - done!')
 
 
     def _cache_issue(self, issue):
@@ -3184,6 +3299,42 @@ class Cache (object):
         return True
 
 
+    def _cache_editmeta(self, issue, editmeta):
+        if not isinstance(issue, basestring):
+            issue = Util.get_nested_value(issue, 'key')
+
+        if not issue or not editmeta:
+            return False
+
+        ts = datetime.datetime.utcnow()
+
+        self.editmeta_L1[issue] = (ts, editmeta)
+
+        file_name = self.editmeta_home + os.sep + str(issue)
+        tmp_file_name = self.editmeta_home + os.sep + '.' + str(issue)
+
+        try:
+            f = open(tmp_file_name, 'w')
+            f.write(ts.strftime('%s\n' % Cache.TS_FORMAT))
+            f.write(json.dumps(editmeta, indent=2, sort_keys=True))
+            f.close()
+            os.rename(tmp_file_name, file_name)
+            
+        except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to cache editmeta for the issue %s: %s' %\
+                    (issue.key, str(e)))
+            return False
+
+        except Exception, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error caching editmeta for the issue %s: %s' %\
+                    (issue.key, str(e)))
+            return False
+
+        return True
+
+
     def _cache_worklogs(self, issue, worklogs):
         if not isinstance(issue, basestring):
             issue = Util.get_nested_value(issue, 'key')
@@ -3199,7 +3350,7 @@ class Cache (object):
         self.worklog_L1[issue] = (ts, worklogs)
 
         file_name = self.worklog_home + os.sep + str(issue)
-        tmp_file_name = self.issue_home + os.sep + '.' + str(key)
+        tmp_file_name = self.issue_home + os.sep + '.' + str(issue)
 
         try:
             f = open(tmp_file_name, 'w')
@@ -3268,6 +3419,50 @@ class Cache (object):
         return None, None
 
 
+    def _load_editmeta(self, issue):
+        if not issue:
+            return (None, None)
+
+        if not isinstance(issue, basestring):
+            issue = issue.key
+        
+        L1_cached = self.editmeta_L1.get(issue)
+        if L1_cached:
+            return L1_cached
+
+        file_name = self.editmeta_home + os.sep + str(issue)
+
+        try:
+            f = open(file_name, 'r')
+            timestamp = f.readline().strip()
+            editmeta = json.load(f)
+            f.close()
+
+            result = (
+                datetime.datetime.strptime(timestamp, Cache.TS_FORMAT),
+                editmeta
+            )
+
+            self.editmeta_L1[issue] = result
+
+            return result
+            
+        except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to load editmeta for the issue %s: %s' %\
+                    (issue.key, str(e)))
+            return (None, None)
+
+        except Exception, e:
+            # TODO: properly handle
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error loading editmeta for the issue %s: %s' %\
+                    (issue.key, str(e)))
+            return (None, None)
+
+        return None, None
+
+
     def _load_worklogs(self, issue):
         if not issue:
             return (None, None)
@@ -3301,9 +3496,9 @@ class Cache (object):
             return result
             
         except IOError, e:
-            vpre(VERBOSITY_ERRORS,
-                u'ERROR: unable to load worklogs for the issue %s: %s' %\
-                    (issue.key, str(e)))
+            #vpre(VERBOSITY_ERRORS,
+                #u'ERROR: unable to load worklogs for the issue %s: %s' %\
+                    #(issue, str(e)))
             return (None, None)
 
         except Exception, e:
@@ -3412,9 +3607,9 @@ class Cache (object):
                 jql += JQL.emit_order_by(order_by)
 
             try:
-                vpre(VERBOSITY_INFO,
-                    u'Fetching %d issues...' % len(issues_to_fetch),
-                    end=u'')
+                #vpre(VERBOSITY_INFO,
+                    #u'Fetching %d issues...' % len(issues_to_fetch),
+                    #end=u'')
                 issues = self.get_jira().search_issues(
                                     jql, fields='*all',
                                     expand='changelog',
@@ -3422,17 +3617,17 @@ class Cache (object):
                                         (limit - result_issues) \
                                             if limit > 0 and not order_by \
                                             else -1)
-                vpre(VERBOSITY_INFO, u' - done!')
+                #vpre(VERBOSITY_INFO, u' - done!')
                 issues_to_fetch = []
-                vpre(VERBOSITY_INFO,
-                    u'Caching %d issues...' % len(issues),
-                    end=u'')
+                #vpre(VERBOSITY_INFO,
+                    #u'Caching %d issues...' % len(issues),
+                    #end=u'')
                 for issue in issues:
                     issue.worklogs = None
                     issues_to_fetch.append(issue)
                     self._cache_issue(issue)
                     result_issues += 1
-                vpre(VERBOSITY_INFO, u' - done!')
+                #vpre(VERBOSITY_INFO, u' - done!')
 
                 if go_down or go_up:
                     for linked_issue in self._get_linked_issues(
@@ -3738,21 +3933,37 @@ class Template (object):
         self.format_field_value = Template.Default.format_field_value
         self.get_issue_type_icon = Template.Default.get_issue_type_icon
         self.print_issue_list = Template.Default.print_issue_list
-        self.format_issue_list_item = Template.Default.format_issue_list_item
+        self.format_issue_list_item = \
+                                Template.Default.format_issue_list_item
         self.print_issue_tree = Template.Default.print_issue_tree
         self.issue_tree_item = Template.Default.format_issue_tree_item
         self.format_issue_header = Template.Default.format_issue_header
-        self.format_all_issue_fields = Template.Default.format_all_issue_fields
+        self.format_all_issue_fields = \
+                                Template.Default.format_all_issue_fields
         self.print_issue_links = Template.Default.print_issue_links
-        self.format_issue_links_item = Template.Default.format_issue_links_item
-        self.print_issue_comments = Template.Default.print_issue_comments
-        self.format_issue_comments_item = Template.Default.format_issue_comments_item
+        self.format_issue_links_item = \
+                                Template.Default.format_issue_links_item
+        self.print_issue_comments = \
+                                Template.Default.print_issue_comments
+        self.format_issue_comments_item = \
+                                Template.Default.format_issue_comments_item
         self.print_issue_history = Template.Default.print_issue_history
-        self.format_issue_history_item = Template.Default.format_issue_history_item
+        self.format_issue_history_item = \
+                                Template.Default.format_issue_history_item
         self.print_issue_worklog = Template.Default.print_issue_worklog
-        self.format_issue_worklog_item = Template.Default.format_issue_worklog_item
-        self.format_server_list_item = Template.Default.format_server_list_item
+        self.format_issue_worklog_item = \
+                                Template.Default.format_issue_worklog_item
+        self.format_server_list_item = \
+                                Template.Default.format_server_list_item
         self.format_server = Template.Default.format_server
+        self.convert_issue_fields_for_editing = \
+                        Template.Default.convert_issue_fields_for_editing
+        self.convert_issue_fields_after_editing = \
+                        Template.Default.convert_issue_fields_after_editing
+        self.get_field_list_for_issue_creation = \
+                        Template.Default.get_field_list_for_issue_creation
+        self.get_field_list_for_issue_editing = \
+                        Template.Default.get_field_list_for_issue_editing
         self.format_issue_field_meta = \
                         Template.Default.format_issue_field_meta
 
@@ -3768,7 +3979,7 @@ class Template (object):
                 break
             if template not in filenames:
                 vpre(VERBOSITY_WARNINGS,
-                    u'WARNING: Template \'%s\' not found, using default one.' %\
+                    u'\nWARNING: Template \'%s\' not found, using default one.' %\
                         template)
             else:
                 try:
@@ -3786,7 +3997,7 @@ class Template (object):
                     vpre(VERBOSITY_WARNINGS,
                         u'WARNING: Unable to load template \'%s\': %s' %\
                             (template, unicode(e)))
-            vpre(VERBOSITY_INFO, u' - done!')
+                vpre(VERBOSITY_INFO, u' - done!')
 
         self.field_delimiter = cfg.o.get('display.field_delimiter',
                                     Template.DEFAULT_FIELD_DELIMITER)
@@ -3824,7 +4035,7 @@ class Template (object):
 
 
     def _get_field_name(self, field_id):
-        return self.field_by_id.get(field_id)
+        return self.cache.fields.get_field_name(field_id, field_id)
 
 
     def _get_field_id(self, field_name):
@@ -3866,11 +4077,14 @@ class Template (object):
                 return value.name
 
             elif t == User:
+                name = value.name
+                disp_name = value.displayName
                 email = value.emailAddress
-                name = value.displayName
-                if not name:
-                    name = emails
-                return u'%s <%s>' % (name, email)
+                if disp_name:
+                    str_user = '%s (%s) <%s>' % (disp_name, name, email)
+                else:
+                    str_user = email
+                return str_user
 
             else:
                 return str(value)
@@ -3878,12 +4092,7 @@ class Template (object):
 
         @staticmethod
         def format_field_name(tpl, issue, field_name):
-            name = tpl._get_field_name(field_name)
-            if name:
-                name = name.get('name')
-            if name is None:
-                name = field_name
-            return name
+            return tpl._get_field_name(field_name)
 
 
         @staticmethod
@@ -4042,7 +4251,7 @@ class Template (object):
             result = u''
 
             for field, multiline in field_defs:
-                value = Util.get_issue_field_value(issue, field)
+                value = Util.get_issue_field_value(issue, field, True)
                 if not value:
                     continue
                 f_field = tpl.format_field_name(tpl, issue, field)
@@ -4421,6 +4630,89 @@ class Template (object):
 
 
         @staticmethod
+        def get_field_list_for_issue_creation(tpl, issue):
+            return (
+                'Key', 'Summary', 'Issue Type', 'Priority',
+                'Component', 'Status', 'Resolution', 'Fix Version/s',
+                'Security Level', 'Share visibility with', 'Labels',
+                'Assignee', 'Reporter', 'Created', 'Updated',
+                'Starting date', 'Change Request', 'Sponsor',
+                'Interested', 'Blocked by', 'Description'
+            )
+
+
+        @staticmethod
+        def get_field_list_for_issue_editing(tpl, issue):
+            #return None
+            return (
+                'Key', 'Summary', 'Issue Type', 'Priority',
+                'Component', 'Status', 'Resolution', 'Fix Version/s',
+                'Security Level', 'Share visibility with', 'Labels',
+                'Assignee', 'Reporter', 'Created', 'Updated',
+                'Starting date', 'Change Request', 'Sponsor',
+                'Interested', 'Blocked by', 'Description'
+            )
+
+        @staticmethod
+        def convert_issue_fields_for_editing(tpl, issue, field_meta,
+                                                fields=None):
+            if not fields:
+                fields = \
+                    tpl.get_field_list_for_issue_editing(tpl, issue)
+            included_fields = set(fields) if fields else None
+            result = OrderedDict()
+            fname = field_meta.get_field_name('key', 'Key')
+            result[fname] = issue.key
+            #processed = set((fname,))
+
+            issue_fields = issue.fields.__dict__
+
+            if fields:
+                for name in fields:
+                    fid = field_meta.get_field_id(name, name)
+                    fname = field_meta.get_field_name(name, name)
+                    #if fname in processed:
+                    if fname in result:
+                        continue
+                    #processed.add(fname)
+                    value = issue_fields.get(fid)
+                    if not value and fid not in issue_fields:
+                        raise RuntimeError(
+                            u'Field \'%s\' is not known' % name)
+                    value = field_meta.convert_field_value_for_editing(
+                                            fid, value)
+                    if value is not None:
+                        result[fname] = value
+            else:
+                for fid, value in issue.fields.__dict__.iteritems():
+                    if fid[0] == '_':
+                        continue
+                    fname = field_meta.get_field_name(fid, fid)
+                    #if fname in processed:
+                    if fname in result:
+                        continue
+                    #processed.add(fname)
+                    value = field_meta.convert_field_value_for_editing(
+                                            fid, value)
+                    if value is not None:
+                        result[fname] = value
+
+            return result
+
+
+        @staticmethod
+        def convert_issue_fields_after_editing(tpl, fields, field_meta):
+            result = OrderedDict()
+
+            for name, value in fields.iteritems():
+                fid = field_meta.get_field_id(name)
+                fvalue = field_meta.convert_field_value_after_editing(
+                                                            fid, value)
+                result[name] = fvalue
+            return result
+
+
+        @staticmethod
         def format_issue_field_meta(tpl, field_meta):
             val_type = Util.get_nested_value(
                             field_meta, 'schema.type', u'N/A')
@@ -4450,7 +4742,7 @@ class jicML (object):
         parsing_multiline = False
         folding_ws = False
         name = None
-        value = None
+        value = u''
         line = u''
         while True:
             try:
@@ -4461,13 +4753,13 @@ class jicML (object):
             if parsing_multiline:
                 if line is None \
                 or line.lstrip().startswith(jicML.MARKER_END):
-                    if value[-1] == u'\n':
+                    if value and value[-1] == u'\n':
                         value = value[:-1]
                     return (name, value)
 
                 pos = line.find(jicML.MARKER_END)
                 if pos < 0:
-                    value += line
+                    value += line + u'\n'
                     continue
 
                 remainder = line[:pos]
@@ -4498,7 +4790,7 @@ class jicML (object):
             or sline.startswith(u'#'):
                 continue
 
-            if name is None and value is None:
+            if name is None and value == u'':
                 pos = line.find(jicML.MARKER_START)
                 if pos < 0:
                     lhs, delimiter, rhs = line.partition(u':')
@@ -4515,6 +4807,8 @@ class jicML (object):
                             rhs = lhs
                     else:
                         rhs = line
+
+                rhs = rhs.lstrip()
 
                 if rhs.startswith(jicML.MARKER_START):
                     value = rhs[len(jicML.MARKER_START):]
@@ -4586,6 +4880,18 @@ class jicML (object):
         if width == -1:
             width = os.environ.get('COLUMNS', 0)
 
+        if not isinstance(value, basestring):
+            t = type(value)
+
+            if t == datetime.date:
+                value = value.strftime('%Y-%m-%d')
+
+            elif t == datetime.datetime:
+                value = value.strftime('%Y-%m-%d %H:%M:%S')
+
+            elif t in (tuple, list):
+                value = u', '.join(value)
+
         if force_markers or value.find('\n') != -1:
             return \
                 ((field_name + u': ') if field_name else u'') + \
@@ -4636,7 +4942,414 @@ class jicML (object):
                                                         force_markers)
         return result
 
+
+    @staticmethod
+    def parse_issues(text_iter):
+        issues = OrderedDict()
+        common_fields = []
+
+        collecting_common_fields = True
+        current_issue = None
+        while True:
+            name, value = jicML.parse_nvpair(text_iter)
+            if not name:
+                break
+            lname = name.lower()
+
+            if collecting_common_fields:
+                if lname != 'key':
+                    common_fields.append((name, value))
+                    continue
+                else:
+                    collecting_common_fields = False
+                    # fall through
+
+            if lname == 'key':
+                current_issue = OrderedDict()
+                current_issue[name] = value
+                current_issue.update(common_fields)
+                issues[value] = current_issue
+            else:
+                current_issue[name] = value
+
+        return issues
+
 # class jicML
+
+
+class FieldMetadata(object):
+
+    def __init__(self, field_meta=None):
+        self.field_meta = field_meta
+        # index fields
+        self.field_by_id = {}
+        self.field_by_name = {}
+        for field_def in field_meta:
+            self.field_by_id[field_def.get('id')] = field_def
+            self.field_by_name[field_def.get('name')] = field_def
+
+
+    def get_field_id(self, partial_name, default=None):
+        result = self.field_by_id.get(partial_name)
+        if result:
+            return result['id']
+
+        result = self.field_by_name.get(partial_name)
+        if result:
+            return result['id']
+
+        matches = []
+        for name in self.field_by_id.keys():
+            if name.find(partial_name) != -1:
+                matches.append(self.field_by_id[name]['id'])
+        if len(matches) > 1:
+            raise RuntimeError(
+                u'Partially specified field name \'%s\' is ambigous' %\
+                    partial_name)
+        if matches:
+            return matches[0]
+
+        matches = []
+        for name in self.field_by_name.keys():
+            if name.find(partial_name) != -1:
+                matches.append(self.field_by_name[name]['id'])
+        if len(matches) > 1:
+            raise RuntimeError(
+                u'Partially specified field name \'%s\' is ambigous' %\
+                    partial_name)
+        if matches:
+            return matches[0]
+
+        return default
+
+
+    def get_field_name(self, partial_name, default):
+        result = self.field_by_id.get(partial_name)
+        if result:
+            return result['name']
+
+        result = self.field_by_name.get(partial_name)
+        if result:
+            return result['name']
+
+        matches = []
+        for name in self.field_by_id.keys():
+            if name.find(partial_name) != -1:
+                matches.append(self.field_by_id[name]['name'])
+        if len(matches) > 1:
+            raise RuntimeError(
+                u'Partially specified field name \'%s\' is ambigous' %\
+                    partial_name)
+        if matches:
+            return matches[0]
+
+        matches = []
+        for name in self.field_by_name.keys():
+            if name.find(partial_name) != -1:
+                matches.append(self.field_by_name[name]['name'])
+        if len(matches) > 1:
+            raise RuntimeError(
+                u'Partially specified field name \'%s\' is ambigous' %\
+                    partial_name)
+        if matches:
+            return matches[0]
+
+        return default
+
+
+    def convert_field_value_for_editing(self, field_name, field_value):
+        if field_value is None:
+            return u''
+
+        field_id = self.get_field_id(field_name)
+        val_type = self.get_field_type(field_id)
+
+        return self._convert_field_value_for_editing(
+                        field_id, val_type, field_value)
+
+
+    def _convert_field_value_for_editing(self, fname, ftype, fvalue):
+        if ftype[0] == 'string':
+            if hasattr(fvalue, 'value'):
+                return fvalue.value
+            return unicode(fvalue)
+
+        elif ftype[0] == 'date':
+            date = datetime.date.strptime(fvalue, '%Y-%m-%d')
+            #return dt.strftime('%Y-%m-%d')
+            return dt
+
+        elif ftype[0] == 'datetime':
+            dt = datetime.datetime.strptime(
+                    fvalue[:19], '%Y-%m-%dT%H:%M:%S')
+            #return dt.strftime('%Y-%m-%d %H:%M:%S')
+            return dt
+
+        elif ftype[0] in ('issuetype', 'priority', 'project', 'status',
+                            'resolution', 'version', 'component',
+                            'securitylevel'):
+            return Util.get_nested_value(fvalue, 'name')
+
+        elif ftype[0] == 'number':
+            return fvalue
+
+        elif ftype[0] == 'user':
+            name = Util.get_nested_value(fvalue, 'name')
+            disp_name = Util.get_nested_value(fvalue, 'displayName')
+            email = Util.get_nested_value(fvalue, 'emailAddress')
+
+            result = u''
+            if disp_name:
+                result = '%s (%s) <%s>' % (disp_name, name, email)
+            else:
+                result = email
+            return result
+
+        elif ftype[0] == 'progress':
+            #return u'%d/%d' % (fvalue.progress, fvalue.total)
+            return (fvalue.progress, fvalue.total)
+
+        elif ftype[0] == 'array':
+            if ftype[1] in ('comment', 'issuelinks', 'votes', 'watches',
+                                'worklog'):
+                return None
+            result = []
+            for subvalue in fvalue:
+                result.append(self._convert_field_value_for_editing(
+                                    fname, ftype[1:], subvalue))
+            #return u', '.join(result)
+            return result
+
+        return unicode(fvalue)
+
+
+    def convert_field_value_after_editing(self, field_id, field_value):
+        if field_value is None:
+            return u''
+
+        ftype = self.get_field_type(field_id)
+
+        if ftype[0] in ('string', 'issuetype', 'priority', 'project',
+                            'status', 'resolution', 'version',
+                            'component', 'securitylevel', 'user'):
+            return field_value.strip()
+
+        elif ftype[0] == 'date':
+            if not field_value:
+                return u''
+            return datetime.date.strptime(field_value, '%Y-%m-%d')
+
+        elif ftype[0] == 'datetime':
+            if not field_value:
+                return u''
+            return datetime.datetime.strptime(field_value,
+                                                    '%Y-%m-%d %H:%M:%S')
+
+        elif ftype[0] == 'number':
+            return long(field_value)
+
+        elif ftype[0] == 'progress':
+            progress, delim, total = field_value.partition('/')
+            if delim:
+                try:
+                    return (long(progress), long(total))
+                except ValueError:
+                    return u''
+
+        elif ftype[0] == 'array':
+            if field_id == 'comment':
+                return field_value
+
+            if not field_value:
+                return u''
+
+            values = [item.strip() for item in field_value.split(',')]
+            if ftype[1] == 'number':
+                try:
+                    values = [long(item) for item in values]
+                except ValueError:
+                    pass
+            return values
+
+        return field_value
+
+
+    def get_field_type(self, field_id):
+        meta = self.field_by_id.get(field_id)
+        if not meta:
+            return 'string'
+        val_type = [Util.get_nested_value(meta, 'schema.type'), ]
+        if val_type[0] == 'array':
+            val_type.append(Util.get_nested_value(meta, 'schema.items'))
+        return val_type
+
+
+# class FieldMetadata
+
+
+class EditingContext(object):
+
+    def __init__(self, cfg, cache, tpl):
+        self.cfg = cfg
+        self.cache = cache
+        self.field_meta = cache.fields
+        self.tpl = tpl
+        self.original = OrderedDict()
+        self.edited = OrderedDict()
+
+
+    def prepare_issues_for_editing(self, issues):
+        jicml = u''
+        first = True
+        prepared = OrderedDict()
+        for issue in issues:
+            if first:
+                first = False
+            else:
+                jicml += u'\n\n'
+            fields = \
+                self.tpl.convert_issue_fields_for_editing(
+                            self.tpl, issue, self.cache.fields,
+                            self.tpl.fields)
+            editmeta = issue.editmeta.get('fields', None)
+            prepared[issue.key] = fields
+            for fname, value in fields.iteritems():
+                # TODO: ad list of values
+                if hasattr(issue, 'editmeta'):
+                    if editmeta:
+                        fid = self.field_meta.get_field_id(fname, fname)
+                        field_edit_meta = editmeta.get(fid, ())
+                        if field_edit_meta:
+                            allowed_values = []
+                            for item in field_edit_meta.get('allowedValues', ()):
+                                iname = item.get('name')
+                                if iname:
+                                    allowed_values.append(iname)
+                            if allowed_values:
+                                text = u'Allowed values: %s\n' % (u', '.join(allowed_values))
+                                lines = textwrap.wrap(
+                                            text, 72, 
+                                            break_long_words=True,
+                                            initial_indent=u'# ',
+                                            subsequent_indent=u'#  ')
+                                jicml += u'\n'.join(lines) + u'\n'
+                jicml += u'%s: %s\n' % (fname, jicML.emit_value(value))
+
+            # allow adding a new comment within the same change set
+            #jicml += u'Comment: {{{\n}}}\n'
+
+        self.original = prepared
+
+        return jicml
+
+
+    def parse_edited_issues(self, jicml_text):
+        issues = jicML.parse_issues(TextIterator(jicml_text))
+        result = OrderedDict
+        for key in issues:
+            fields = issues.get(key)
+            fields = self.tpl.convert_issue_fields_after_editing(
+                            self.tpl, fields, self.cache.fields)
+            issues[key] = fields
+        self.edited = issues
+        return issues
+
+
+    def generate_update_job(self):
+        original = self.original
+        if not original:
+            raise RuntimeError(
+                u'Internal Error: no original values for EditingContext')
+        edited = self.edited
+        if not edited:
+            raise RuntimeError(
+                u'Internal Error: no edited values for EditingContext')
+
+        field_meta = self.cache.fields
+
+        job = {}
+        current_issue = {}
+        eissues_processed = set()
+
+        # go through the originally listed issues
+        for issue_key, ofields in original.iteritems():
+            if issue_key not in edited:
+                continue # removed by user - skip
+            eissues_processed.add(issue_key)
+            efields = edited.get(issue_key)
+            efields_processed = set(('key', 'issuekey'))
+
+            # go through the original fields
+            for fname, ovalue in ofields.iteritems():
+                fid = field_meta.get_field_id(fname)
+                if fid in ('issuekey', 'key'):
+                    continue
+
+                efields_processed.add(fname)
+
+                evalue = efields.get(fname)
+
+                if fname not in efields \
+                or ovalue == evalue:
+                    continue
+
+                if issue_key not in job:
+                    current_issue = {}
+                    job[issue_key] = current_issue
+
+                self._add_field_update_job(
+                    current_issue, fid, ovalue, efields.get(fname))
+
+            # now - through the newly added ones
+            for fname, evalue in efields.iteritems():
+                if fname in efields_processed:
+                    continue
+
+                fid = field_meta.get_field_id(fname)
+
+                if fid in ('issuekey', 'key'):
+                    continue
+
+                if issue_key not in job:
+                    current_issue = {}
+                    job[issue_key] = current_issue
+
+                self._add_field_update_job(
+                    current_issue, fid, None, evalue)
+
+        # now go through the issues added in editor
+        for issue_key, efields in edited.iteritems():
+            if issue_key in eissues_processed:
+                continue
+
+            for fname, evalue in efields.iteritems():
+                fid = field_meta.get_field_id(fname)
+
+                if fid in ('issuekey', 'key'):
+                    continue
+
+                if issue_key not in job:
+                    current_issue = {}
+                    job[issue_key] = current_issue
+
+                self._add_field_update_job(
+                    current_issue, fid, None, evalue)
+
+        return job
+
+
+    def _add_field_update_job(self, issue_job, fid, ovalue, evalue):
+        ftype = self.field_meta.get_field_type(fid)
+        if ftype[0] == 'array':
+            if fid not in ('labels',):
+                evalue = [{ 'name': item} for item in evalue]
+        elif ftype[0] in ('priority','user'):
+            evalue = { 'name': evalue}
+
+        issue_job[fid] = evalue
+        return issue_job
+
+# class EditingContext
 
 
 ################################################################
@@ -4885,7 +5598,7 @@ def cmd_comments_edit(cfg):
     vpre(VERBOSITY_INFO, u'')
 
     if not to_edit:
-        pre(u'WARNING: Nothing to do.')
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
         return 0
 
     # editor based
@@ -4994,8 +5707,10 @@ def cmd_comments_show(cfg):
         for comment in issue.fields.comment.comments:
             if not comment_ids or comment.id in comment_ids:
                 if cfg.o.get('display.raw', False):
-                    pr(jicML.emit_value(
-                            comment.body, force_markers=True))
+                    #pr(jicML.emit_value(
+                            #comment.body, force_markers=True))
+                    pr(jicML.emit_value(comment.body,
+                        force_markers=False))
                 else:
                     pr(tpl.format_issue_comments_item(tpl, issue,
                                 comment, show_issue_key=True))
@@ -5053,7 +5768,115 @@ def cmd_configuration_edit(cfg):
     Util.edit_file(editor, cfg.config_file)
 
 
+EDIT_ISSUES_PROMPT = """\
+# Please edit the issue%s listed below. You may also add additional
+# issues and/or fields you would like to edit with their respective new
+# values, or remove ones (or just kip them intact) you would not like to
+# edit.
+#
+# Leave the file intact or delete all its content to cancel the
+# operation.
+
+"""
+
+def cmd_issues_edit(cfg):
+    cache = Cache(cfg)
+
+    if cache.mode == Cache.MODE_OFFLINE:
+        raise RuntimeError(
+                u'Can\'t edit issues in offline mode yet')
+
+    listed_issues = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    if not cfg.o.get('cl.use_editor', False) \
+    or not sys.stdin.isatty() \
+    or not sys.stdout.isatty():
+        raise RuntimeError(
+            u'Issue editing is only sopported using an editor for now')
+
+    # validate issues listed
+    to_edit = []
+    for issue in listed_issues:
+        if not Util.is_issue_key(issue):
+            vpre(VERBOSITY_WARNINGS,
+                u'Not an issue key: \'%s\'. Skipped.' % issue)
+            continue
+        to_edit.append(issue)
+
+    if not to_edit:
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
+        return 0
+
+    tpl = Template(cfg, cache)
+
+    edc = EditingContext(cfg, cache, tpl)
+
+    # fetch issues
+    vpre(VERBOSITY_INFO,
+        u'Fetching %d issues for editing...' % len(to_edit),
+        end=u'')
+    issues = cache.fetch(to_edit)
+    vpre(VERBOSITY_INFO, u' - done!')
+
+    # emit jicML for all the issues
+    jicml = EDIT_ISSUES_PROMPT % (u's' if len(to_edit) != 1 else u'')
+    jicml += edc.prepare_issues_for_editing(issues)
+
+    # invoke editor
+    editor = cfg.o.get('editor', 'sensible-editor')
+    edited_jicml = Util.get_from_editor(
+                    cfg, editor, jicml, file_suffix=u'jicml')
+
+    if not edited_jicml:
+        vpre(VERBOSITY_INFO, u'Cancelled by the user')
+        return 0
+
+    # parse issues
+    parsed_issues = edc.parse_edited_issues(edited_jicml)
+
+    # generate job
+    job = edc.generate_update_job()
+
+    # show job and get user's confirmation
+    pre(u'Pending changes to be applied:')
+    for issue, fields in job.iteritems():
+        pre(u'* %s' % issue)
+        for fid, value in fields.iteritems():
+            fname = cache.fields.get_field_name(fid, fid)
+            if not value:
+                value = u''
+            else:
+                if type(value) in (list, tuple):
+                    value = value[0]
+                if type(value) == dict:
+                    value = value.get('name', value)
+            value = jicML.emit_value(value)
+            pre(u'  - %s: %s' % (fname, repr(value)))
+
+    if not Util.confirm(u'Would you like to apply them? (y/n)'):
+        return 1
+
+    # execute the job
+    for issue_key, fields in job.iteritems():
+        vpre(VERBOSITY_INFO, u'Updating %s...' % issue_key, end=u'')
+        issue = cache.get(issue_key)[0]
+        issue.update(**fields)
+        vpre(VERBOSITY_INFO, u' - done!')
+
+    issues = job.keys()
+    vpre(VERBOSITY_INFO, u'Fetching %d issues...' % len(issues), end=u'')
+    cache.fetch(issues)
+    vpre(VERBOSITY_INFO, u' - done!')
+
+    return 0
+
+
 def cmd_issues_fetch(cfg):
+    if cache.mode == Cache.MODE_OFFLINE:
+        raise RuntimeError(
+                u'Can\'t fetch issues in offline mode')
+
     listed_issues = \
         Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
 
@@ -5134,6 +5957,34 @@ def cmd_issues_list(cfg):
                 cfg.o.get('query.jql'))
 
     tpl.print_issue_list(tpl, issues)
+
+    return 0
+
+
+def cmd_issues_open(cfg):
+    cache = Cache(cfg)
+
+    listed_issues = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+
+    browser = cfg.o.get('browser', 'sensible-browser')
+    server_url = cache.srv_cfg.get('url')
+    if not server_url:
+        raise RuntimeError(
+            u'Internal Error: missing server url')
+
+    if not listed_issues:
+        vargs = (browser, server_url)
+        subprocess.Popen(vargs, stdout=open('/dev/null', 'w'),
+                         stderr=subprocess.STDOUT)
+        return 0
+
+    for issue in listed_issues:
+        url = server_url + '/browse/%s' % issue
+        vargs = (browser, url)
+        subprocess.Popen(vargs, stdout=open('/dev/null', 'w'),
+                         stderr=subprocess.STDOUT)
 
     return 0
 
@@ -5232,6 +6083,13 @@ def cmd_servers_add(cfg):
             u'Please specify at least one option')
 
     server_name = args.pop(0)
+
+    for idx, ch in enumerate(server_name):
+        if (idx == 0 and not ch.isalpha()) \
+        or (idx > 0 and not ch.isalnum() and ch != u'_'):
+            raise RuntimeError(
+                u'Server name can only contain alpha-numerics ' \
+                u'and underscores.')
 
     server_def = {}
     in_error = False
@@ -5624,16 +6482,20 @@ def main():
         cl = CommandLine(cfg)
         cfg.freeze()
 
+        if not cl.command_path:
+            raise RuntimeError(
+                u'Did not recognize any commands.')
+
         return cl.execute(cfg)
 
     except RuntimeError, e:
         vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
         return 1
 
-    except Exception, e:
-        vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
-        vpre(VERBOSITY_ERRORS, traceback.format_exc())
-        return 1
+    #except Exception, e:
+        #vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
+        #vpre(VERBOSITY_ERRORS, traceback.format_exc())
+        #return 1
 
 
 if __name__ == '__main__':

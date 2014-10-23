@@ -2,11 +2,11 @@
 #
 # Put this file into ~/.jic/ directory
 
-o.browser = 'iceweasel'
+o.browser = 'sensible-browser'
 o.editor = 'sensible-editor'
 
 # default caching mode: 'cached', 'offline', 'online'
-o.cache.mode = 'cached'
+o.cache.mode = 'online'
 
 # how long locally cached data is considered to be fresh
 o.cache.ttl = 3600
@@ -53,6 +53,10 @@ o.symlink.mode = 0777
 o.commands.jadd.aliases = 'add,ad,a'
 o.commands.jadd.help = 'add issue comments'
 o.commands.jadd.plumbing = 'comments add'
+
+o.commands.jed.aliases = 'edit,edi,ed,e'
+o.commands.jed.help = 'edit an existing issue'
+o.commands.jed.plumbing = 'issues edit -e'
 
 o.commands.jedc.aliases = 'editc,edic,edc,ec'
 o.commands.jedc.help = 'edit issue comments'

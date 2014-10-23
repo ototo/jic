@@ -8,16 +8,16 @@ jic \- your command line interface to JIRA
 [\fIoptions\fR]
 [\fIcommand\fR [\fIarg ...\fR]]
 
-.B \fIporcelaine-symlink
+.B \fIporcelain-symlink
 [\fIoptions\fR]
 [\fIcommand\fR [\fIarg ...\fR]]
 
 .SH DESCRIPTION
 
 .B jic
-is a command line tool aimed at providing an iterface to JIRA that is
+is a command line tool aimed at providing an interface to JIRA that is
 similar to
-.BR git "."
+.BR git " in its ease of use and flexibility.
 
 .PP
 It supports two modes of interaction with the user \- editor based
@@ -25,20 +25,20 @@ It supports two modes of interaction with the user \- editor based
 pipes based (all information is provided by the user using pipes).
 
 .PP
-It supports both \- online and offline modes of operation, allowing
+It also supports both \- online and offline modes of operation, allowing
 performing queries and modifying cached data with an option to commit
 such changes to the server later.
 
 .PP
 The command line interface for \fBjic\fR is modal and has two modes -
-\fIporcelaine\fR (covering the most frequent use cases) and
+\fIporcelain\fR (covering the most frequent use cases) and
 \fIplumbing\fR (powerful and verbose interface). Commands for
-\fIporcelaine\fR mode can easily be added by the user (see
+\fIporcelain\fR mode can easily be added by the user (see
 \fBjic-config\fR (1) for details.
 
 .SH OPTIONS
-The following options are accessable in both modes of command line -
-\fIporcelaine\fR and \fIplumbing\fR:
+The following options are accessible in both modes of command line -
+\fIporcelain\fR and \fIplumbing\fR:
 
 .IP "-\fBa\fR, --\fBall\fR"
 process all items/parts
@@ -49,7 +49,7 @@ process children
 .IP "-\fBD\fR \fIISSUE_LIST\fR, --\fBdown-from\fR \fIISSUE_LIST\fR"
 process children of the parent(s) specified
 .IP "-\fBe\fR, --\fBeditor\fR"
-process all items/parts; see `man jic` for details
+use editor to provide information to jic
 .IP "-\fBf\fR \fICRITERIA_LIST\fR, --\fBfilter\fR \fICRITERIA_LIST\fR"
 only process items matching the criteria
 .IP "-\fBF\fR \fIFIELD_LIST\fR, --\fIfields\fR \fIFIELD_LIST\fR
@@ -91,15 +91,21 @@ be verbose while performing actions
 .IP "-\fBV\fR, --\fBversion\fR"
 show jic's version information
 
-.SH HIGH LEVEL COMMANDS (PORCELAINE)
-This section describes the porcelaine commands that are shipped together
+.SH HIGH LEVEL COMMANDS (PORCELAIN)
+This section describes the porcelain commands that are shipped together
 with \fBjic\fR by default. These commands are defined in \fBjic\fR
 configuration file. It is possible to change them and add new ones using
 \fIplumbing\fR commands.
 
+Please note that switches used in porcelain mode are appended to the
+ones specified in corresponding porcelain command's definition (please
+see 
+.B jic-config
+for information on how to define your own porcelain commands).
+
 .SS jadd
 
-This command adds new comment for a speccified JIRA issue. Both issue
+This command adds new comment for a specified JIRA issue. Both issue
 keys and comment text can be provided using pipes or editor.
 
 Examples of usage:
@@ -156,6 +162,23 @@ $ echo -e 'CARD-123:2345,2346\n' | jdel -k
 .RE
 .fi
 
+.SS jed
+
+This command allows editing existing issues. Please note that not all
+the fields can be edited this way - state/resolution can only be changed
+usint \fBjtr\fR command that is not yet implemented.
+
+Examples of usage:
+.nf
+.RS
+# Edit one issue
+$ jed CARD-123
+
+# Edit two issues at once
+$ jed CARD-123 CARD-124
+.RE
+.fi
+
 .SS jedc
 
 This command replaces the existing comment's text with the one provided.
@@ -175,12 +198,14 @@ $ (echo -e 'CARD-123:2345\nCARD-124:2346\n' ; echo 'Next text')| jedc -k
 .RE
 .fi
 
-.SS jls " [ " assigned " | " reported " ] "
+.SS jls
+.SS jls assigned
+.SS jls reported
 
-This command lists issues assigned to and/or reported by you.
-To show only the issues assigned to you add \fIassigned\fR as a
-parameter. To show only the issues reported by you add \fIreported\fR as
-a parameter.
+With no parameters provided this command lists issues assigned to and/or
+reported by you.  To show only the issues assigned to you add
+\fIassigned\fR as a parameter. To show only the issues reported by you
+add \fIreported\fR as a parameter.
 
 Examples of usage:
 .nf
@@ -209,11 +234,16 @@ $ jls assigned -F key,summary,updated,status
 
 
 .SS jsh
+.SS jsh comments
+.SS jsh links
+.SS jsh history
+.SS jsh worklog
+.SS jsh all
 
 This command shows detailed issue's information. By default, it only
-shows all issue fields. To show other information please specify one of
-the following: \fBcomments\fR, \fBlinks\fR, \fBhistory\fR, \fBworklog\fR
-or \fBall\fR.
+shows issue fields. To show other information instead, please specify
+one of the following: \fBcomments\fR, \fBlinks\fR, \fBhistory\fR,
+\fBworklog\fR or \fBall\fR.
 
 Examples of usage:
 .nf
@@ -224,7 +254,7 @@ $ jsh CARD-123
 # show comments for CARD-123 and CARD-124
 $ jsh comments CARD-123 CARD-124
 
-# show all th einformation for the card which key is provided using
+# show all the information for the card which key is provided using
 # pipes
 $ echo CARD-123 | jsh all -k
 .RE
@@ -232,8 +262,208 @@ $ echo CARD-123 | jsh all -k
 
 
 .SH LOW LEVEL COMMANDS (PLUMBING)
+These commands are the concentration of \fBjic\fR's power - they provide
+all the features used by the \fIporcelain\fR mode and more on top of
+that. These are for those tasks that require higher levels of control
+over what \fBjic\fR is doing and how it does that.
 
-TODO
+TODO:
+
+.SS comments
+This command allows working with JIRA issue comments. All the
+functionality is provided as sub-commands for this command, which are
+listed below.
+
+.SS comments add <issue> [<issue...>]
+This command adds one or more comments into the issues whose keys are
+provided as arguments. When comment text is piped in into the stdin,
+\fBjic\fR is expecting input to be a valid jicML stream of values
+(please see \fbjicml\r (1) for details). If the number of issues listed
+exceeds the number of comments provided, the text of the last provided
+comment will be used for all the remaining issues.
+
+Switches:
+
+.IP "-\fBe\fR, --\fBeditor\fR"
+    invokes an editor to get new comments' text
+
+Examples of usage:
+.nf
+.RS
+# add a comment to CARD-123 using piped in text
+$ echo 'This is a new comment' | jic comments add CARD-123
+
+# add a comment to CARD-123 using an editor
+$ jic comments add -e CARD-123
+
+# add the same comment to CARD-123 and CARD-124 using pipes
+$ echo 'A comment' | jic comments add CARD-123 CARD-124
+.RE
+.fi
+
+.SS comments delete <issue:comment> [<issue:comment>]
+This command deletes one or more comments from one or more issues.
+Comments to be deleted have to be specified the following way:
+.RS
+CARD-123:23672
+CARD-123:23423,23455
+.RE
+
+Examples of usage:
+.nf
+.RS
+# delete a comment with id 12345 from CARD-123
+$ jic comments delete CARD-123:12345
+
+# delete three comments from two issues
+$ jic comments delete CARD-123:12345,12346 CARD-124:12347
+.RE
+.fi
+
+.SS comments edit <issue:comment> [<issue:comment>]
+This command replaces current comment body with the provided one.
+If multiple comments are being edited, multiple bodies are to be
+provided. Last provided comment body will be used for those comments
+which are missing their respective comment bodies.
+
+Editor based editing is not supported yet.
+
+Examples of usage:
+.nf
+.RS
+# edit one comment using pipes
+$ echo -e 'This is a multiline\n comment with ws folding' |
+> jic comments edit CARD-123:12345
+
+# edit comment using pipes and user input
+$ jic comments edit CARD-123:12345 <<EOF
+{{{
+This is a multiline comment,
+which is formatted according to jicML (see man jicml)
+}}}
+EOF
+.RE
+.fi
+
+
+.SS comments list <issue> [<issue>]
+TODO: document
+
+
+.SS comments show <issue:comment> [<issue:comment>]
+TODO: document
+
+
+.SS commands
+TODO: document
+
+.SS commands symlink
+This command creates symlinks as defined in fonfiguration (under
+\fIcommands\fR subtree). The place where symlinks are created is defined
+by the \fIsymlink.location\fR configuration option.
+
+TODO: document
+
+.SS configuration
+TODO: document
+
+.SS configuration edit
+This command starts an editor and allows editing \fBjic\fR's
+configuration file.
+
+TODO: document
+
+.SS issues
+TODO: document
+
+.SS issues edit
+This command allows editing one or more issues using an editor. Stdio
+based version is not implemented yet.
+
+Switches:
+
+.IP "-\fBe\fR, --\fBeditor\fR"
+    invokes an editor to get new comments' text
+
+TODO: document
+
+
+.SS issues fetch
+This command fetches the issues specified from the server and caches
+them in the local cache. Only works in online mode.
+
+.SS issues list
+This command lists issues according to the criteria specified.
+TODO: document
+
+.SS issues open
+This command opens one or more issues in a configured web browser. If no
+issues were specified, a root JIRA page is opened for the current server.
+
+TODO: document
+
+.SS issues pull
+This command refreshes the currently cached issues. Nop additional,
+previously uncached, issues are being pulled.
+
+TODO: document
+
+.SS issues show
+This command shows one or more issues specified. By default it only
+shows fields, but more parts of the issues can be shows using -\fBp\fR
+switch.
+
+TODO: document
+
+
+.SS servers
+TODO: document
+
+.SS servers add <name> url:<url> user:<user>
+This command adds a new server into the configuration.
+
+Examples of usage:
+.nf
+.RS
+# add a new server
+$ jic servers add my_server url:https://myserver.org
+> user:first.last@myserver.org
+.RE
+.fi
+
+TODO: document
+
+.SS servers dance <name> [<cert_file>]
+This command performs an OAuth dance to authenticate \fBjic\fR.
+If \fIcart_file\fR is not specified, it should be referred to in
+configuration by the \fIservers.<name>.cert\fR option.
+
+.SS servers delete <name>
+
+TODO: document
+
+
+.SS servers edit <name> <option>:<value>
+This command updates server information in configuration.
+
+TODO: document
+
+
+.SS servers list
+This command lists all known servers.
+
+TODO: document
+
+
+.SS servers select <name>
+This command selects a known server to become the default one.
+
+TODO: document
+
+.SS servers show <name>
+This command shows information about a known server.
+
+TODO: document
 
 .SH CONFIGURATION
 \fBjic\fR uses Python interpreter to process its configuration file.
@@ -246,8 +476,9 @@ container named \fBo\fR in the following manner:
 .RS
 # ~/.jic/config file
 o.servers.myjira.url = 'http://myjira.some.org'
-o.servers.myjira.oauth.token = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-o.servers.myjira.oauth.secret = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+o.servers.myjira.oauth.cert = 'xxxxxx...'
+o.servers.myjira.oauth.token = 'xxxxxx...'
+o.servers.myjira.oauth.secret = 'xxxxxx...'
 o.servers.myjira.user = 'some.user@some.org'
 # ...
 .RE
@@ -267,11 +498,11 @@ with single underscores (e.g. 'JIC_O_HOME_LOCATION' is translated into
 \'home.location' and 'JIC_O_QUERY_SEARCH__ONLINE' - into
 \'query.search_online').
 
-TODO
+TODO: complete
 
 .SH FILES
 
-TODO
+TODO: complete
 
 .SH AUTHORS
 
@@ -313,4 +544,4 @@ http://lists.linaro.org/mailman/listinfo/jic-dev
 
 .SH SEE ALSO
 
-TODO
+TODO: document
