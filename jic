@@ -69,6 +69,9 @@ class Util (object):
     # regexp that matches JIRA issue keys
     re_issue_key = re.compile(r'''^\w+-\d+$''')
 
+    # regexp that matches new (not yet created) issue keys
+    re_new_issue_key = re.compile(r'''^NEW-\w+-\d+$''')
+
     # regexp to match JIRA comment ids (with a leading issue key or not)
     re_comment_id = re.compile(r'''(?:\w+-\d+:)?\d+''')
 
@@ -76,6 +79,11 @@ class Util (object):
     @staticmethod
     def is_issue_key(string):
         return Util.re_issue_key.match(string) is not None
+
+
+    @staticmethod
+    def is_new_issue_key(string):
+        return Util.re_new_issue_key.match(string) is not None
 
 
     @staticmethod
@@ -1961,10 +1969,10 @@ class CommandLine (object):
                         #None,
                         #('python', lambda cfg, cache, tpl: print('issues:clone')),
                         #'clone existing issues and edit clones'),
-                    #(('create', 'creat', 'crea', 'cre', 'cr', 'c'),
-                        #None,
-                        #('python', lambda cfg, cache, tpl: print('issues:create')),
-                        #'create new issues'),
+                    (('create', 'creat', 'crea', 'cre', 'cr', 'c'),
+                        None,
+                        ('python', cmd_issues_create),
+                        'create new issues'),
                     #(('delete', 'delet', 'dele', 'del', 'de', 'd'),
                         #None,
                         #('python', lambda cfg, cache, tpl: print('issues:delete')),
@@ -2382,9 +2390,9 @@ class CommandLine (object):
         parser.add_argument('-t', '--template', nargs=1,
             dest='template', default=None, metavar='NAME',
             help='use the template specified')
-        #parser.add_argument('-T', '--issue-types', nargs=1, action='append',
-            #dest='issue_types', metavar='ISSUE_TYPE_LIST',
-            #help='process/use only the issue types specified')
+        parser.add_argument('-T', '--issue-types', nargs=1, action='append',
+            dest='issue_types', metavar='ISSUE_TYPE_LIST',
+            help='process/use only the issue types specified')
         parser.add_argument('-u', '--up', action='store_true',
             dest='up', default=None,
             help='process ancestors')
@@ -2485,6 +2493,7 @@ class Cache (object):
     HOME = 'cache'
     ISSUE_CACHE = 'issues'
     ISSUE_EDITMETA_CACHE = 'editmeta'
+    ISSUE_CREATEMETA_CACHE = 'createmeta'
     WORKLOG_CACHE = 'worklogs'
     FIELD_CACHE = 'fields'
 
@@ -2517,6 +2526,7 @@ class Cache (object):
     # level 1 cache (level 2 being the FS storage)
     issue_L1 = {}
     editmeta_L1 = {}
+    createmeta_L1 = {}
     worklog_L1 = {}
 
 
@@ -2657,6 +2667,11 @@ class Cache (object):
         or (Util.is_stale(self.ttl, self.fields_ts) \
                 and self.mode != Cache.MODE_OFFLINE):
             self._cache_fields()
+
+        if not self._load_createmeta() \
+        or (Util.is_stale(self.ttl, self.create_meta_ts) \
+                and self.mode != Cache.MODE_OFFLINE):
+            self._cache_createmeta()
 
         # resolve field names for query.filter
         def resolve_field_name(self, expression):
@@ -2901,6 +2916,15 @@ class Cache (object):
             if comment.id == comment_id:
                 return comment
         return None
+
+
+    def create(self, fields):
+        if self.mode == Cache.MODE_OFFLINE:
+            raise RuntimeError(
+                u'Creating issues is only supported in online mode')
+        new_issue = self.get_jira().create_issue(fields)
+        self._cache_issue(new_issue)
+        return new_issue
 
 
     def update(self, changes):
@@ -3251,6 +3275,90 @@ class Cache (object):
         except Exception, e:
             vpre(VERBOSITY_ERRORS,
                 u'ERROR: error fetching field list: %s' % str(e))
+            return False
+
+        return True
+
+
+    def _load_createmeta(self):
+        file_name = \
+            self.srv_home + os.sep + Cache.ISSUE_CREATEMETA_CACHE
+
+        self.create_meta = ()
+        self.create_meta_ts = None
+
+        try:
+            vpre(VERBOSITY_INFO,
+                u'Loading createmeta information from the cache...', end=u'')
+            f = open(file_name, 'r')
+            timestamp = datetime.datetime.strptime(
+                            f.readline().strip(), Cache.TS_FORMAT)
+            raw = json.load(f)
+            f.close()
+            vpre(VERBOSITY_INFO, u' - done!')
+
+            self.create_meta = CreateIssueMetadata(raw)
+            self.create_meta_ts = timestamp
+
+        except IOError, e:
+            # TODO: properly handle
+            if e.errno != errno.ENOENT:
+                vpre(VERBOSITY_ERRORS,
+                    u'ERROR: unable to load cached createmeta '\
+                    u'information: %s' % str(e))
+            return False
+
+        except Exception, e:
+            # TODO: properly handle
+            if e.errno != errno.ENOENT:
+                vpre(VERBOSITY_ERRORS,
+                    u'ERROR: unable to load cached createmeta '\
+                    u'information: %s' % str(e))
+            return False
+
+        return True
+
+
+    def _cache_createmeta(self):
+        try:
+            self.create_meta = CreateIssueMetadata({ 'projects': () })
+            if self.mode != Cache.MODE_OFFLINE:
+                vpre(VERBOSITY_INFO,
+                    u'Fetching createmeta information...',
+                    end=u'')
+                self.create_meta = CreateIssueMetadata(
+                        self.get_jira().createmeta(
+                            expand='projects.issuetypes.fields'))
+            self.create_meta_ts = datetime.datetime.utcnow()
+
+            if self.mode != Cache.MODE_OFFLINE:
+                file_name = \
+                    self.srv_home + os.sep + Cache.ISSUE_CREATEMETA_CACHE
+                tmp_file_name = \
+                    self.issue_home + os.sep + '.' + Cache.ISSUE_CREATEMETA_CACHE
+
+                f = open(tmp_file_name, 'w')
+                f.write(self.create_meta_ts.strftime('%s\n' % Cache.TS_FORMAT))
+                f.write(json.dumps(self.create_meta.create_meta,
+                        indent=2, sort_keys=True))
+                f.close()
+                os.rename(tmp_file_name, file_name)
+                vpre(VERBOSITY_INFO, u' - done!')
+
+        except JIRAError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to fetch createmeta information '\
+                u'from the server \'%s\': %s' % (self.srv_name, str(e)))
+            return False
+
+        except IOError, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: unable to store createmeta information: %s' % str(e))
+            return False
+
+        except Exception, e:
+            vpre(VERBOSITY_ERRORS,
+                u'ERROR: error fetching createmeta information: %s' % str(e))
             return False
 
         return True
@@ -3958,14 +4066,20 @@ class Template (object):
         self.format_server = Template.Default.format_server
         self.convert_issue_fields_for_editing = \
                         Template.Default.convert_issue_fields_for_editing
+        self.generate_issue_fields_for_creation = \
+                        Template.Default.generate_issue_fields_for_creation
         self.convert_issue_fields_after_editing = \
                         Template.Default.convert_issue_fields_after_editing
         self.get_field_list_for_issue_creation = \
                         Template.Default.get_field_list_for_issue_creation
         self.get_field_list_for_issue_editing = \
                         Template.Default.get_field_list_for_issue_editing
+        self.get_field_list_to_force_jicML_markers = \
+                        Template.Default.get_field_list_to_force_jicML_markers
         self.format_issue_field_meta = \
                         Template.Default.format_issue_field_meta
+        self.get_new_issue_field_values = \
+                        Template.Default.get_new_issue_field_values
 
         template = cfg.o.get('display.template')
         if not template:
@@ -4630,28 +4744,26 @@ class Template (object):
 
 
         @staticmethod
-        def get_field_list_for_issue_creation(tpl, issue):
+        def get_field_list_for_issue_creation(tpl, parent_issue,
+                                                    issue_type, project_key):
             return (
-                'Key', 'Summary', 'Issue Type', 'Priority',
-                'Component', 'Status', 'Resolution', 'Fix Version/s',
-                'Security Level', 'Share visibility with', 'Labels',
-                'Assignee', 'Reporter', 'Created', 'Updated',
-                'Starting date', 'Change Request', 'Sponsor',
-                'Interested', 'Blocked by', 'Description'
+                'Key', 'Summary', 'Issue Type', 'Priority', 'Component',
+                'Fix Version/s', 'Labels', 'Assignee', 'Reporter',
+                'Description'
             )
 
 
         @staticmethod
         def get_field_list_for_issue_editing(tpl, issue):
-            #return None
             return (
-                'Key', 'Summary', 'Issue Type', 'Priority',
-                'Component', 'Status', 'Resolution', 'Fix Version/s',
-                'Security Level', 'Share visibility with', 'Labels',
-                'Assignee', 'Reporter', 'Created', 'Updated',
-                'Starting date', 'Change Request', 'Sponsor',
-                'Interested', 'Blocked by', 'Description'
+                'Key', 'Summary', 'Issue Type', 'Priority', 'Component',
+                'Fix Version/s', 'Labels', 'Assignee', 'Reporter',
+                'Description'
             )
+
+        @staticmethod
+        def get_field_list_to_force_jicML_markers(tpl):
+            return ( 'Description', )
 
         @staticmethod
         def convert_issue_fields_for_editing(tpl, issue, field_meta,
@@ -4659,7 +4771,7 @@ class Template (object):
             if not fields:
                 fields = \
                     tpl.get_field_list_for_issue_editing(tpl, issue)
-            included_fields = set(fields) if fields else None
+            #included_fields = set(fields) if fields else None
             result = OrderedDict()
             fname = field_meta.get_field_name('key', 'Key')
             result[fname] = issue.key
@@ -4684,7 +4796,7 @@ class Template (object):
                     if value is not None:
                         result[fname] = value
             else:
-                for fid, value in issue.fields.__dict__.iteritems():
+                for fid, value in issue_fields.iteritems():
                     if fid[0] == '_':
                         continue
                     fname = field_meta.get_field_name(fid, fid)
@@ -4698,6 +4810,54 @@ class Template (object):
                         result[fname] = value
 
             return result
+
+
+        @staticmethod
+        def generate_issue_fields_for_creation(tpl, issue, parent_issue,
+                                    issue_type, field_meta, fields=None):
+            if not fields:
+                fields = \
+                    tpl.get_field_list_for_issue_creation(tpl, issue)
+            included_fields = set(fields) if fields else None
+            result = OrderedDict()
+            fname = field_meta.get_field_name('key', 'Key')
+            result[fname] = issue.key
+            #processed = set((fname,))
+
+            issue_fields = issue.fields
+
+            if fields:
+                for name in fields:
+                    fid = field_meta.get_field_id(name, name)
+                    fname = field_meta.get_field_name(name, name)
+                    #if fname in processed:
+                    if fname in result:
+                        continue
+                    #processed.add(fname)
+                    value = issue_fields.get(fid)
+                    if not value and fid not in issue_fields:
+                        raise RuntimeError(
+                            u'Field \'%s\' is not known' % name)
+                    value = field_meta.convert_field_value_for_editing(
+                                            fid, value)
+                    if value is not None:
+                        result[fname] = value
+            else:
+                for fid, value in issue_fields.iteritems():
+                    if fid[0] == '_':
+                        continue
+                    fname = field_meta.get_field_name(fid, fid)
+                    #if fname in processed:
+                    if fname in result:
+                        continue
+                    #processed.add(fname)
+                    value = field_meta.convert_field_value_for_editing(
+                                            fid, value)
+                    if value is not None:
+                        result[fname] = value
+
+            return result
+
 
 
         @staticmethod
@@ -4723,6 +4883,23 @@ class Template (object):
                     field_meta.get('name'),
                     field_meta.get('id'),
                     val_type)
+
+
+        @staticmethod
+        def get_new_issue_field_values(tpl, parent_issue, issue_type,
+                                                                project):
+            project_name = \
+                tpl.cache.create_meta.get_project_name(project)
+            values = {
+                'assignee': parent_issue.fields.assignee,
+                'priority': parent_issue.fields.priority,
+                'project': project_name,
+                'link [Implements]': parent_issue.key,
+            }
+            if issue_type == 'Sub-task':
+                values['parent'] = parent_issue.key
+
+            return values
 
     # class Default
 
@@ -4877,6 +5054,9 @@ class jicML (object):
             string  - generated jicML representation
         """
 
+        if not value:
+            return u'{{{\n}}}' if force_markers else u''
+
         if width == -1:
             width = os.environ.get('COLUMNS', 0)
 
@@ -4981,6 +5161,13 @@ class FieldMetadata(object):
 
     def __init__(self, field_meta=None):
         self.field_meta = field_meta
+        self.field_meta.append(
+            {   u'id':      u'parent',
+                u'name':    u'Parent Issue',
+                u'schema':  {   u'type':    u'string',
+                                u'system':  u'parent'
+                            }
+            })
         # index fields
         self.field_by_id = {}
         self.field_by_name = {}
@@ -5069,7 +5256,12 @@ class FieldMetadata(object):
 
 
     def _convert_field_value_for_editing(self, fname, ftype, fvalue):
-        if ftype[0] == 'string':
+
+        if isinstance(fvalue, basestring) \
+        and ftype[0] not in ('date', 'datetime'):
+            return fvalue
+
+        if ftype[0] in ('string',):
             if hasattr(fvalue, 'value'):
                 return fvalue.value
             return unicode(fvalue)
@@ -5085,24 +5277,30 @@ class FieldMetadata(object):
             #return dt.strftime('%Y-%m-%d %H:%M:%S')
             return dt
 
-        elif ftype[0] in ('issuetype', 'priority', 'project', 'status',
-                            'resolution', 'version', 'component',
-                            'securitylevel'):
+        elif ftype[0] in ('priority', 'project', 'status', 'resolution',
+                          'version', 'component', 'securitylevel',
+                          'issuetype'):
             return Util.get_nested_value(fvalue, 'name')
 
         elif ftype[0] == 'number':
             return fvalue
 
         elif ftype[0] == 'user':
-            name = Util.get_nested_value(fvalue, 'name')
-            disp_name = Util.get_nested_value(fvalue, 'displayName')
-            email = Util.get_nested_value(fvalue, 'emailAddress')
+            #name = Util.get_nested_value(fvalue, 'name')
+            #disp_name = Util.get_nested_value(fvalue, 'displayName')
+            #email = Util.get_nested_value(fvalue, 'emailAddress')
 
-            result = u''
-            if disp_name:
-                result = '%s (%s) <%s>' % (disp_name, name, email)
-            else:
-                result = email
+            #result = u''
+            #if disp_name:
+                #result = '%s (%s) <%s>' % (disp_name, name, email)
+            #else:
+                #result = email
+
+            result = Util.get_nested_value(fvalue, 'name')
+
+            if not result:
+                result = fvalue
+
             return result
 
         elif ftype[0] == 'progress':
@@ -5184,7 +5382,108 @@ class FieldMetadata(object):
         return val_type
 
 
+    def create_issue_mockup(self, issue_key, issue_type, field_values=None):
+        """Creates a mockup of a JIRA issue (data only)
+
+        Parameters:
+            issue_key : string
+                key of the issue to create mockup for
+            issue_type : string
+                name of the issue type
+            field_values : iterable
+                list of (name, value) pairs providing values for
+                corresponding fields
+        Returns:
+            a data-only issue mockup (implemented using Namespace class)
+        """
+        issue_mockup = Namespace()
+        for field_def in self.field_meta:
+            field_name = field_def['name']
+            field_name = self.get_field_id(field_name)
+            value = None
+            if field_values and field_name in field_values:
+                value = field_values.get(field_name)
+            issue_mockup.set('fields.%s' % field_name, value)
+
+        issue_mockup.key = issue_key
+        issue_mockup.issuekey = issue_key
+        issue_mockup.fields.issuetype = issue_type
+
+        issue_mockup.learn(False)
+
+        return issue_mockup
+
+
 # class FieldMetadata
+
+
+class CreateIssueMetadata(object):
+
+    def __init__(self, create_meta=None):
+        self.create_meta = create_meta
+        # index projects, issue types and fields
+        self.project_by_key = {}
+        self.project_by_name = {}
+        for project_def in create_meta.get('projects'):
+            project_issue_types = {}
+            for issue_type_def in project_def.get('issuetypes', ()):
+                issue_type_fields = issue_type_def['fields']
+                issue_type_info = (issue_type_def, issue_type_fields)
+                project_issue_types[issue_type_def['name']] = \
+                                                        issue_type_info
+            project_info = (project_def, project_issue_types)
+            self.project_by_key[project_def.get('key')] = project_info
+            self.project_by_name[project_def.get('name')] = project_info
+
+
+    def get_project_key(self, project):
+        project_def = self.project_by_key.get(project)
+        if not project_def:
+            project_def = self.project_by_name.get(project, (None,None))
+        return project_def[0]['key']
+
+
+    def get_project_name(self, project):
+        project_def = self.project_by_key.get(project)
+        if not project_def:
+            project_def = self.project_by_name.get(project, (None,None))
+        return project_def[0]['name']
+
+
+    def get_project_def(self, project):
+        project_def = self.project_by_key.get(project)
+        if not project_def:
+            project_def = self.project_by_name.get(project, (None,None))
+        return project_def
+
+
+    def get_project_issue_type(self, project, issue_type):
+        project_def, issue_types = self.get_project_def(project)
+        if not project_def:
+            raise RuntimeError(u'Unknown project: \'%s\'' % project)
+        pair = issue_types.get(issue_type)
+        if not pair:
+            raise RuntimeError(
+                u'Unknown issue type \'%s\' for project \'%s\'' % (
+                    issue_type, project))
+        issue_type_def, field_defs = pair
+        return issue_type_def
+
+
+    def get_project_issue_type_fields(self, project, issue_type):
+        project_def, issue_types = self.get_project_def(project)
+        if not project_def:
+            raise RuntimeError(u'Unknown project: \'%s\'' % project)
+        pair = issue_types.get(issue_type)
+        if not pair:
+            raise RuntimeError(
+                u'Unknown issue type \'%s\' for project \'%s\'' % (
+                    issue_type, project))
+        issue_type_def, field_defs = pair
+        return field_defs
+
+
+# class CreateIssueMetadata
 
 
 class EditingContext(object):
@@ -5193,6 +5492,7 @@ class EditingContext(object):
         self.cfg = cfg
         self.cache = cache
         self.field_meta = cache.fields
+        self.create_meta = cache.create_meta
         self.tpl = tpl
         self.original = OrderedDict()
         self.edited = OrderedDict()
@@ -5202,20 +5502,134 @@ class EditingContext(object):
         jicml = u''
         first = True
         prepared = OrderedDict()
+        forced_markers = \
+            self.tpl.get_field_list_to_force_jicML_markers(self.tpl)
+        forced_markers = set([ 
+            self.field_meta.get_field_name(item, item) \
+                for item in forced_markers ])
+
         for issue in issues:
             if first:
                 first = False
             else:
                 jicml += u'\n\n'
+
             fields = \
                 self.tpl.convert_issue_fields_for_editing(
                             self.tpl, issue, self.cache.fields,
                             self.tpl.fields)
-            editmeta = issue.editmeta.get('fields', None)
             prepared[issue.key] = fields
             for fname, value in fields.iteritems():
-                # TODO: ad list of values
-                if hasattr(issue, 'editmeta'):
+                if hasattr(issue, 'editmeta') \
+                and issue.editmeta is not None:
+                    editmeta = issue.editmeta.get('fields', None)
+                    if editmeta:
+                        fid = self.field_meta.get_field_id(fname, fname)
+                        field_edit_meta = editmeta.get(fid, ())
+                        if field_edit_meta:
+                            allowed_values = []
+                            for item in field_edit_meta.get('allowedValues', ()):
+                                iname = item.get('name')
+                                if iname:
+                                    allowed_values.append(iname)
+                            if allowed_values:
+                                text = u'Allowed values for '\
+                                       u'\'%s\': %s\n' % (
+                                            fname, u', '.join(allowed_values))
+                                lines = textwrap.wrap(
+                                            text, 72, 
+                                            break_long_words=True,
+                                            initial_indent=u'# ',
+                                            subsequent_indent=u'#  ')
+                                jicml += u'\n'.join(lines) + u'\n'
+                jicml += u'%s: %s\n' % (fname,
+                            jicML.emit_value(
+                                value,
+                                force_markers=(fname in forced_markers)))
+
+            # TODO: allow adding a new comment within the same change set
+            #jicml += u'Comment: {{{\n}}}\n'
+
+        self.original = prepared
+
+        return jicml
+
+
+    def create_issue_mockup(self, issue_key, parent_issue, issue_type,
+                                                                project):
+        """Creates a data-only mockup for an issue using information
+        provided"""
+        fields_with_values = self.tpl.get_new_issue_field_values(
+            self.tpl, parent_issue, issue_type, project)
+        mockup = self.field_meta.create_issue_mockup(
+                                    issue_key, issue_type,
+                                    fields_with_values)
+        return mockup
+
+
+    def prepare_new_issue_for_editing(self, issue, fields_to_show,
+                                                    fields_meta=None):
+        jicml = u''
+        forced_markers = \
+            self.tpl.get_field_list_to_force_jicML_markers(self.tpl)
+        forced_markers = set([ 
+            self.field_meta.get_field_name(item, item) \
+                for item in forced_markers ])
+
+        for name in fields_to_show:
+            field_name = self.field_meta.get_field_name(name, name)
+            field_id = self.field_meta.get_field_id(name, name)
+            value = Util.get_issue_field_value(issue, field_id)
+            value = self.field_meta.convert_field_value_for_editing(
+                                field_id, value)
+                                    
+            if value is None:
+                value = u''
+
+            if fields_meta and field_id in fields_meta:
+                allowed_values = []
+                for item in fields_meta[field_id].get('allowedValues', ()):
+                    iname = item.get('name')
+                    if iname:
+                        allowed_values.append(iname)
+                if allowed_values:
+                    text = u'Allowed values for '\
+                           u'\'%s\': %s\n' % (
+                                field_name, u', '.join(allowed_values))
+                    lines = textwrap.wrap(
+                                text, 72, 
+                                break_long_words=True,
+                                initial_indent=u'# ',
+                                subsequent_indent=u'#  ')
+                    jicml += u'\n'.join(lines) + u'\n'
+
+            jicml += u'%s: %s\n' % (field_name,
+                        jicML.emit_value(
+                                value,
+                                force_markers=(field_name in forced_markers)))
+
+        return jicml
+
+
+    def prepare_issues_for_creating(self, issues):
+        jicml = u''
+        first = True
+        prepared = OrderedDict()
+        for issue in issues:
+            if first:
+                first = False
+            else:
+                jicml += u'\n\n'
+
+            fields = \
+                self.tpl.generate_issue_fields_for_creation(
+                            self.tpl, issue, self.cache.fields,
+                            self.tpl.fields)
+            prepared[issue.key] = fields
+            for fname, value in fields.iteritems():
+                if hasattr(issue, 'editmeta') \
+                and issue.editmeta is not None:
+                    editmeta = issue.editmeta.get('fields', None)
                     if editmeta:
                         fid = self.field_meta.get_field_id(fname, fname)
                         field_edit_meta = editmeta.get(fid, ())
@@ -5255,11 +5669,43 @@ class EditingContext(object):
         return issues
 
 
+    def generate_create_job(self):
+        edited = self.edited
+        if not edited:
+            raise RuntimeError(
+                u'Internal Error: no edited values for EditingContext')
+
+        field_meta = self.cache.fields
+
+        job = {}
+        current_issue = {}
+
+        # go through the issues added in editor
+        for issue_key, fields in edited.iteritems():
+            if not issue_key.startswith('NEW-'):
+                continue
+
+            fields_to_set = {}
+            for fname, value in fields.iteritems():
+                fid = field_meta.get_field_id(fname)
+
+                if fid in ('issuekey', 'key'):
+                    continue
+
+                if value:
+                    self._add_field_update_job(
+                        fields_to_set, fid, None, value)
+            if fields_to_set:
+                job[issue_key] = fields_to_set
+
+        return job
+
+
     def generate_update_job(self):
         original = self.original
-        if not original:
-            raise RuntimeError(
-                u'Internal Error: no original values for EditingContext')
+        #if not original:
+            #raise RuntimeError(
+                #u'Internal Error: no original values for EditingContext')
         edited = self.edited
         if not edited:
             raise RuntimeError(
@@ -5275,6 +5721,8 @@ class EditingContext(object):
         for issue_key, ofields in original.iteritems():
             if issue_key not in edited:
                 continue # removed by user - skip
+            if issue_key.startswith('NEW-'):
+                continue
             eissues_processed.add(issue_key)
             efields = edited.get(issue_key)
             efields_processed = set(('key', 'issuekey'))
@@ -5290,7 +5738,8 @@ class EditingContext(object):
                 evalue = efields.get(fname)
 
                 if fname not in efields \
-                or ovalue == evalue:
+                or ovalue == evalue \
+                or (not ovalue and not evalue):
                     continue
 
                 if issue_key not in job:
@@ -5321,6 +5770,8 @@ class EditingContext(object):
         for issue_key, efields in edited.iteritems():
             if issue_key in eissues_processed:
                 continue
+            if issue_key.startswith('NEW-'):
+                continue
 
             for fname, evalue in efields.iteritems():
                 fid = field_meta.get_field_id(fname)
@@ -5341,10 +5792,18 @@ class EditingContext(object):
     def _add_field_update_job(self, issue_job, fid, ovalue, evalue):
         ftype = self.field_meta.get_field_type(fid)
         if ftype[0] == 'array':
+            if fid == 'labels' and not evalue:
+                evalue = []
             if fid not in ('labels',):
                 evalue = [{ 'name': item} for item in evalue]
-        elif ftype[0] in ('priority','user'):
-            evalue = { 'name': evalue}
+        elif ftype[0] in ('priority', 'user', 'issuetype'):
+            evalue = { 'name': evalue }
+        elif ftype[0] in ('project',):
+            project_key = self.create_meta.get_project_key(evalue)
+            evalue = { 'key': project_key }
+
+        if fid == 'parent':
+            evalue = { 'key': evalue }
 
         issue_job[fid] = evalue
         return issue_job
@@ -5768,6 +6227,290 @@ def cmd_configuration_edit(cfg):
     Util.edit_file(editor, cfg.config_file)
 
 
+# TODO: get from template
+CREATE_ISSUES_PROMPT = """\
+# Please edit the field values for the new issue%s listed below.
+# You may also add additional issues you would like to create and/or
+# fields you would like to provide values for with their respective new
+# values, or remove ones you would not like to create.
+#
+# New issues should have 'NEW-' prefix in their keys.
+#
+# Leave the file intact or delete all its content to cancel the
+# operation.
+
+"""
+
+def cmd_issues_create(cfg):
+    cache = Cache(cfg)
+
+    if cache.mode == Cache.MODE_OFFLINE:
+        raise RuntimeError(
+                u'Can\'t create issues in offline mode yet')
+
+    arguments = \
+        Util.unwrap_list_of_lists(cfg.o.get('query.args',()))
+
+    if not cfg.o.get('cl.use_editor', False) \
+    or not sys.stdin.isatty() \
+    or not sys.stdout.isatty():
+        raise RuntimeError(
+            u'Issue creation is only sopported using an editor for now')
+
+    parent_issues = []
+    projects_to_create_issues_in = []
+    issues_to_edit = []
+
+    go_down = cfg.o.get('query.down', False)
+
+    down_from = cfg.o.get('query.down_from', [])
+    if down_from:
+        parent_issues.extend(down_from)
+
+    issue_types = cfg.o.get('query.issue_types')
+    if not issue_types:
+        raise RuntimeError(
+            u'One or more issue type need to be specified '\
+            u'to create issues')
+
+    # get a list of issue IDs to create issues with
+    # validate issues listed
+    for issue in arguments:
+        if Util.is_issue_key(issue):
+            if go_down:
+                parent_issues.append(issue)
+            else:
+                issues_to_edit.append(issue)
+        else:
+            projects_to_create_issues_in.append(issue)
+
+    if not projects_to_create_issues_in and not issues_to_edit:
+        vpre(VERBOSITY_WARNINGS, u'WARNING: Nothing to do.')
+        return 0
+
+    tpl = Template(cfg, cache)
+
+    edc = EditingContext(cfg, cache, tpl)
+
+    # fetch existing ones (if any)
+    if parent_issues:
+        vpre(VERBOSITY_INFO,
+            u'Fetching %d parent issues...' % len(parent_issues),
+            end=u'')
+        parent_issues = cache.fetch(parent_issues)
+
+    if issues_to_edit:
+        vpre(VERBOSITY_INFO,
+            u'Fetching %d issues for editing...' % len(issues_to_edit),
+            end=u'')
+        issues_to_edit = cache.fetch(issues_to_edit)
+
+
+    ##### the code below should be refactored and relocated into
+    ##### corresponding classes
+
+    issues_to_create = []
+    issue_counters = {}
+
+    for project in projects_to_create_issues_in:
+        issue_counters[project] = 1
+
+    # process all the issues being created
+    first = True
+    jicml_created = u''
+    for parent_issue in parent_issues:
+        for issue_type in issue_types:
+            for project in projects_to_create_issues_in:
+                # determine the fields for each new issue:
+                # first - the always required ones...
+                fields_to_show = \
+                    [u'issuekey', u'summary', u'issuetype',
+                            u'project']
+                fields_processed = set(fields_to_show)
+                fields_processed.add(u'key')
+
+                # ...then - required ones that are not listed by
+                # the template...
+                template_fields = tpl.get_field_list_for_issue_creation(
+                            tpl, parent_issue, issue_type, project)
+                template_fields = [edc.field_meta.get_field_id(name, name) \
+                                    for name in template_fields]
+                all_fields = cache.create_meta.\
+                                get_project_issue_type_fields(
+                                    project, issue_type)
+                required_fields = [ \
+                    field_id \
+                        for field_id, field_def in all_fields.iteritems() \
+                        if field_def['required'] ]
+                covered_by_template = set(fields_processed)
+                covered_by_template.update(template_fields)
+
+                for field_name in required_fields:
+                    if field_name not in covered_by_template:
+                        fields_to_show.append(field_name)
+                        fields_processed.add(field_name)
+
+                for field_name in covered_by_template:
+                    if field_name not in fields_processed:
+                        fields_to_show.append(field_name)
+                        fields_processed.add(field_name)
+
+                # ...and then the ones from template
+                for field_name in template_fields:
+                    if field_name not in fields_processed:
+                        fields_to_show.append(field_name)
+                        fields_processed.add(field_name)
+
+                issue_key = 'NEW-%s-%d' % (
+                                project, issue_counters[project])
+                issue_counters[project] += 1
+
+                mockup = edc.create_issue_mockup(
+                        issue_key, parent_issue, issue_type, project)
+
+                mockup.set('fields.reporter', cache.user)
+
+                issues_to_create.append((mockup, fields_to_show))
+
+                if first:
+                    first = False
+                else:
+                    jicml_created += u'\n\n'
+
+                fields_meta = \
+                    edc.create_meta.get_project_issue_type_fields(
+                                        project, issue_type)
+
+                jicml_created += edc.prepare_new_issue_for_editing(
+                                            mockup, fields_to_show,
+                                            fields_meta)
+
+    jicml = CREATE_ISSUES_PROMPT % (
+        u's' if len(issues_to_create) != 1 else u'')
+    jicml += jicml_created
+    if issues_to_edit:
+        jicml += u'\n\n' + EDIT_ISSUES_PROMPT % (
+            u's' if len(issues_to_edit) != 1 else u'')
+        jicml += edc.prepare_issues_for_editing(issues_to_edit)
+
+    # invoke an editor
+    editor = cfg.o.get('editor', 'sensible-editor')
+    edited_jicml = Util.get_from_editor(
+                    cfg, editor, jicml, file_suffix=u'jicml')
+
+    if not edited_jicml:
+        vpre(VERBOSITY_INFO, u'Cancelled by the user')
+        return 0
+
+    # parse issues
+    parsed_issues = edc.parse_edited_issues(edited_jicml)
+
+    # generate jobs
+    create_job = edc.generate_create_job()
+    update_job = edc.generate_update_job()
+
+    if create_job:
+        pre(u'New issues to be created:')
+        issue_keys = sorted(update_job.keys())
+        for issue in issue_keys:
+            fields = update_job.get(issue)
+            pre(u'* %s' % issue)
+            issue_fields = sorted(fields.keys())
+            for fid in issue_fields:
+                value = fields.get(fid)
+                fname = cache.fields.get_field_name(fid, fid)
+                if not value:
+                    value = u''
+                else:
+                    if type(value) in (list, tuple):
+                        items = []
+                        for item in value:
+                            if type(item) == dict:
+                                if item:
+                                    items.append(item.get(item.keys()[0]))
+                        else:
+                            items.append(str(item))
+                        value = u', '.join(items)
+                    elif type(value) == dict:
+                        if 'name' in value:
+                            value = value.get('name', value)
+                        elif 'key' in value:
+                            value = value.get('key', value)
+                        else:
+                            value = value.get(value.keys()[0])
+                    if not value:
+                        value = u''
+                value = jicML.emit_value(value)
+                pre(u'  - %s: %s' % (fname, value))
+
+    # show update job and get user's confirmation
+    if update_job:
+        pre(u'\n\nPending changes to be applied:')
+        issue_keys = sorted(update_job.keys())
+        for issue in issue_keys:
+            fields = update_job.get(issue)
+            pre(u'* %s' % issue)
+            issue_fields = sorted(fields.keys())
+            for fid in issue_fields:
+                value = fields.get(fid)
+                fname = cache.fields.get_field_name(fid, fid)
+                if not value:
+                    value = u''
+                else:
+                    if type(value) in (list, tuple):
+                        items = []
+                        for item in value:
+                            if type(item) == dict:
+                                if item:
+                                    items.append(item.get(item.keys()[0]))
+                        else:
+                            items.append(str(item))
+                        value = u', '.join(items)
+                    elif type(value) == dict:
+                        if 'name' in value:
+                            value = value.get('name', value)
+                        elif 'key' in value:
+                            value = value.get('key', value)
+                        else:
+                            value = value.get(value.keys()[0])
+                    if not value:
+                        value = u''
+                value = jicML.emit_value(value)
+                pre(u'  - %s: %s' % (fname, value))
+
+    if not Util.confirm(u'\nWould you like to apply them? (y/n)'):
+        return 1
+
+    # execute create job
+    created_issues = []
+    if create_job:
+        for issue_key, fields in create_job.iteritems():
+            pr('%s: %s' % (issue_key, repr(fields)))
+            vpre(VERBOSITY_INFO, u'Creating %s...' % issue_key, end=u'')
+            issue = cache.create(fields)
+            created_issues.append(issue.key)
+            pre(VERBOSITY_ERRORS, u'\nCreated new issue for alias %s: %s' % \
+                                                (issue_key, issue.key))
+            vpre(VERBOSITY_INFO, u'Done!')
+
+    # execute the job
+    if update_job:
+        for issue_key, fields in update_job.iteritems():
+            vpre(VERBOSITY_INFO, u'Updating %s...' % issue_key, end=u'')
+            issue = cache.get(issue_key)[0]
+            issue.update(**fields)
+            vpre(VERBOSITY_INFO, u' - done!')
+
+    issues = created_issues
+    issues.extend(update_job.keys())
+    vpre(VERBOSITY_INFO, u'Fetching %d issues...' % len(issues), end=u'')
+    cache.fetch(issues)
+    vpre(VERBOSITY_INFO, u' - done!')
+
+    return 0
+
+
+# TODO: get from template
 EDIT_ISSUES_PROMPT = """\
 # Please edit the issue%s listed below. You may also add additional
 # issues and/or fields you would like to edit with their respective new
@@ -5836,35 +6579,54 @@ def cmd_issues_edit(cfg):
     parsed_issues = edc.parse_edited_issues(edited_jicml)
 
     # generate job
-    job = edc.generate_update_job()
+    update_job = edc.generate_update_job()
 
     # show job and get user's confirmation
     pre(u'Pending changes to be applied:')
-    for issue, fields in job.iteritems():
+    issue_keys = sorted(update_job.keys())
+    for issue in issue_keys:
+        fields = update_job.get(issue)
         pre(u'* %s' % issue)
-        for fid, value in fields.iteritems():
+        issue_fields = sorted(fields.keys())
+        for fid in issue_fields:
+            value = fields.get(fid)
             fname = cache.fields.get_field_name(fid, fid)
             if not value:
                 value = u''
             else:
                 if type(value) in (list, tuple):
-                    value = value[0]
-                if type(value) == dict:
-                    value = value.get('name', value)
+                    items = []
+                    for item in value:
+                        if type(item) == dict:
+                            if item:
+                                items.append(item.get(item.keys()[0]))
+                        else:
+                            items.append(str(item))
+                    value = u', '.join(items)
+                elif type(value) == dict:
+                    if 'name' in value:
+                        value = value.get('name', value)
+                    elif 'key' in value:
+                        value = value.get('key', value)
+                    else:
+                        value = value.get(value.keys()[0])
+                if not value:
+                    value = u''
             value = jicML.emit_value(value)
-            pre(u'  - %s: %s' % (fname, repr(value)))
+            #pre(u'  - %s: %s' % (fname, repr(value)))
+            pre(u'  - %s: %s' % (fname, value))
 
-    if not Util.confirm(u'Would you like to apply them? (y/n)'):
+    if not Util.confirm(u'\nWould you like to apply them? (y/n)'):
         return 1
 
     # execute the job
-    for issue_key, fields in job.iteritems():
+    for issue_key, fields in update_job.iteritems():
         vpre(VERBOSITY_INFO, u'Updating %s...' % issue_key, end=u'')
         issue = cache.get(issue_key)[0]
         issue.update(**fields)
         vpre(VERBOSITY_INFO, u' - done!')
 
-    issues = job.keys()
+    issues = update_job.keys()
     vpre(VERBOSITY_INFO, u'Fetching %d issues...' % len(issues), end=u'')
     cache.fetch(issues)
     vpre(VERBOSITY_INFO, u' - done!')
@@ -6492,10 +7254,24 @@ def main():
         vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
         return 1
 
-    #except Exception, e:
-        #vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
-        #vpre(VERBOSITY_ERRORS, traceback.format_exc())
-        #return 1
+    except JIRAError, e:
+        text = u''
+        if isinstance(e.text, dict):
+            first = True
+            for name, value in e.text.iteritems():
+                if first:
+                    first = False
+                else:
+                    text += u'; '
+                text += u'%s: %s' % (name, value)
+        vpre(VERBOSITY_ERRORS, u'ERROR: %s' % text)
+        vpre(VERBOSITY_INFO, traceback.format_exc())
+        return 1
+
+    except Exception, e:
+        vpre(VERBOSITY_ERRORS, u'ERROR: %s' % str(e))
+        vpre(VERBOSITY_ERRORS, traceback.format_exc())
+        return 1
 
 
 if __name__ == '__main__':
