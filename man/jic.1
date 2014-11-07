@@ -6,11 +6,11 @@ jic \- your command line interface to JIRA
 .SH SYNOPSIS
 .B jic
 [\fIoptions\fR]
-[\fIcommand\fR [\fIarg ...\fR]]
+[\fIcommand\fR \fIsubcommand\fR [\fIarg ...\fR]]
 
 .B \fIporcelain-symlink
 [\fIoptions\fR]
-[\fIcommand\fR [\fIarg ...\fR]]
+[\fIsubcommand\fR] [\fIarg ...\fR]
 
 .SH DESCRIPTION
 
@@ -36,60 +36,75 @@ The command line interface for \fBjic\fR is modal and has two modes -
 \fIporcelain\fR mode can easily be added by the user (see
 \fBjic-config\fR (1) for details.
 
-.SH OPTIONS
-The following options are accessible in both modes of command line -
-\fIporcelain\fR and \fIplumbing\fR:
+.SH SWITCHES
+The following switches are accessible in both modes of command line -
+\fIporcelain\fR and \fIplumbing\fR. This list provides generic meaning
+of each switch - please see command description for command specific
+semantics.
+
+When switches are specified for a \fIporcelain\fR command, those are
+replacing the corresponding switches specified in the command definition
+itself. For details, please see \fBjic-config\fR (1).
+
+jic switches:
 
 .IP "-\fBa\fR, --\fBall\fR"
-process all items/parts
+    process all items/parts
 .IP "-\fBb\fR \fICRITERIA_LIST\fR, --\fBorder-by\fR \fICRITERIA_LIST\fR"
-order results according to the criteria
+    order results according to the criteria
 .IP "-\fBd\fR, --\fBdown\fR"
-process children
+    process children of the issues mentioned using other options and/or
+    arguments
 .IP "-\fBD\fR \fIISSUE_LIST\fR, --\fBdown-from\fR \fIISSUE_LIST\fR"
-process children of the parent(s) specified
+    process children of the parent issues specified, not including the
+    parents themselves (unless -\fBs\fR switch is also specified)
 .IP "-\fBe\fR, --\fBeditor\fR"
-use editor to provide information to jic
+    use editor to provide information; see commands for command specific
+    semantics
 .IP "-\fBf\fR \fICRITERIA_LIST\fR, --\fBfilter\fR \fICRITERIA_LIST\fR"
-only process items matching the criteria
+    only process items matching the criteria
 .IP "-\fBF\fR \fIFIELD_LIST\fR, --\fIfields\fR \fIFIELD_LIST\fR
-only process the fields listed
+    only process the fields listed
 .IP "-\fBh\fR, --\fBhelp\fR"
-show usage information
+    show usage information
 .IP "-\fBH\fR \fINUMBER\fR, --\fBdepth\fR \fINUMBER\fR"
-only process so many levels starting from the referred object
+    only process so many levels starting from the object referred; to be
+    used with -\fBd\fR, -\fBD\fR, -\fBu\fR and -\fBU\fR
 .IP "-\fBk\fR, --\fBkeys\fR"
-get keys of the objects to be processed
+    get keys of the objects to be processed from the editor (if -\fBe\fR
+    is also specified) or standard input
 .IP "-\fBL\fR \fILINK_TYPE_LIST\fR, --\fBlink-types\fR \fILINK_TYPE_LIST\fR"
-process/use only the link types specified
+    process/use only the link types specified
 .IP "-\fBn\fR \fINUMBER\fR, --\fBnumber-of-items\fR \fINUMBER\fR"
-process only so many items
+    process only so many items
 .IP "-\fBo\fR, --\fBonline\fR"
-perform actions on the server
+    work directly with JIRA server
 .IP "-\fBO\fR, --\fBoffline\fR"
-perform actions in the local cache
+    work only with data from JIRA server that has been locally cached
 .IP "-\fBp\fR \fIPART_LIST\fR, --\fBparts\fR \fIPART_LIST\fR"
-process only object parts mentioned
-.IP "-\fBP\fR \fIITEM_LIST\fR, --\fBpurge\fR \fIITEM_LIST\fR"
-process only items mentioned
+    process only object parts mentioned; see relevant commands for details
 .IP "-\fBr\fR, --\fBraw\fR"
-output raw data
+    output raw data instead of a formatted one
 .IP "-\fBs\fR, --\fBself\fR"
-include the issue specified (besides children/ancestors)
+    also include the anchor issues (parents/ancestors) in traversal
 .IP "-\fBS\fR \fISERVER_NAME\fR, --\fBserver\fR \fISERVER_NAME\fR"
-work with JIRA server specified
+    work with JIRA server specified by its name; the server should be
+    known to jic - see \fBjic-config\fR (1) for details
 .IP "-\fBt\fR \fINAME\fR, --\fBtemplate\fR \fINAME\fR"
-use the template specified
+    use the template specified instead of the default, built in one
 .IP "-\fBT\fR \fIISSUE_TYPE_LIST\fR, --\fBissue-types\fR \fIISSUE_TYPE_LIST\fR"
-process/use only the issue types specified
+    process/use only the issue types specified
 .IP "-\fBu\fR, --\fBup\fR"
-process ancestors
+    process ancestors of the issues mentioned using other options and/or
+    arguments
 .IP "-\fBU\fR \fIISSUE_LIST\fR, --\fBup-from\fR \fIISSUE_LIST\fR"
-process ancestors of the issue(s) specified
+    process ancestors of the child issues specified, not including the
+    children themselves (unless -\fBs\fR switch is also specified)
 .IP "-\fBv\fR, --\fBverbose\fR"
-be verbose while performing actions
+    be verbose while performing actions, add more of this switch to
+    increase verbosity
 .IP "-\fBV\fR, --\fBversion\fR"
-show jic's version information
+    show jic's version information
 
 .SH HIGH LEVEL COMMANDS (PORCELAIN)
 This section describes the porcelain commands that are shipped together
@@ -138,6 +153,23 @@ $ (echo -e 'CARD-123\nCARD-124\n' ; echo 'This is a comment')| jadd -k
 .RE
 .fi
 
+.SS jcr blueprint <parent-issue-key> <project-id>
+.SS jcr subtask <parent-issue-key> <project-id>
+
+This command creates new issue of the type mentioned as its argument. It
+requires an argument specifying one of the supported JIRA issue types.
+
+Examples of usage:
+.nf
+.RS
+# create a new blueprint under CARD-123 in PMWG project
+$ jcr blueprint CARD-123 PMWG
+
+# create a new sub-task under CARD-123 in KWG project
+$ jcr subtask CARD-123 KWG
+.RE
+.fi
+
 .SS jdel
 
 This command deletes one or more comments from an issue. Comments are
@@ -164,9 +196,9 @@ $ echo -e 'CARD-123:2345,2346\n' | jdel -k
 
 .SS jed
 
-This command allows editing existing issues. Please note that not all
-the fields can be edited this way - state/resolution can only be changed
-usint \fBjtr\fR command that is not yet implemented.
+This command allows editing existing issues using an editor. Please note
+that not all the fields can be edited this way - state/resolution can
+only be changed usint \fBjtr\fR command that is not yet implemented.
 
 Examples of usage:
 .nf
@@ -242,8 +274,8 @@ $ jls assigned -F key,summary,updated,status
 
 This command shows detailed issue's information. By default, it only
 shows issue fields. To show other information instead, please specify
-one of the following: \fBcomments\fR, \fBlinks\fR, \fBhistory\fR,
-\fBworklog\fR or \fBall\fR.
+one of the following subcommands: \fBcomments\fR, \fBlinks\fR,
+\fBhistory\fR, \fBworklog\fR or \fBall\fR.
 
 Examples of usage:
 .nf
@@ -262,17 +294,23 @@ $ echo CARD-123 | jsh all -k
 
 
 .SH LOW LEVEL COMMANDS (PLUMBING)
-These commands are the concentration of \fBjic\fR's power - they provide
-all the features used by the \fIporcelain\fR mode and more on top of
-that. These are for those tasks that require higher levels of control
-over what \fBjic\fR is doing and how it does that.
+Besides the high level, easy to use \fIporcelain\fR commands, jic
+supports a powerful set of \fIplumbing\fR commands. These commands are a
+concentration of \fBjic\fR's power - they provide all the features used
+by the \fIporcelain\fR mode commands and more on top of that. These are
+for those tasks that require higher levels of control over what
+\fBjic\fR is doing and how it does that.
 
+These commands more verbose comparing to their concise counterpart -
+\fIporcelain\fR commands. \fIPlumbing\fR commands are defined in two
+words each: first one naming a subject while the second one - a
+corresponding action.
 TODO:
 
 .SS comments
-This command allows working with JIRA issue comments. All the
-functionality is provided as sub-commands for this command, which are
-listed below.
+This group of commands allows working with JIRA issue comments. This
+subject can also be referred to using the following aliases: 
+commands, command, comman, comma, comm, com, co, cm
 
 .SS comments add <issue> [<issue...>]
 This command adds one or more comments into the issues whose keys are
@@ -285,7 +323,8 @@ comment will be used for all the remaining issues.
 Switches:
 
 .IP "-\fBe\fR, --\fBeditor\fR"
-    invokes an editor to get new comments' text
+    invokes an editor to get new comments' text; will use standard input
+    instead of omitted
 
 Examples of usage:
 .nf
@@ -309,6 +348,10 @@ CARD-123:23672
 CARD-123:23423,23455
 .RE
 
+Switches:
+
+TODO: document
+
 Examples of usage:
 .nf
 .RS
@@ -320,13 +363,17 @@ $ jic comments delete CARD-123:12345,12346 CARD-124:12347
 .RE
 .fi
 
-.SS comments edit <issue:comment> [<issue:comment>]
+.SS comments edit <issue-key:comment-id> [<issue-key:comment-id>]
 This command replaces current comment body with the provided one.
 If multiple comments are being edited, multiple bodies are to be
 provided. Last provided comment body will be used for those comments
-which are missing their respective comment bodies.
+which are missing their provided comment bodies.
 
 Editor based editing is not supported yet.
+
+Switches:
+
+TODO: document
 
 Examples of usage:
 .nf
@@ -347,7 +394,22 @@ EOF
 
 
 .SS comments list <issue> [<issue>]
+This command lists comments for issues specified.
+
+Switches:
+
 TODO: document
+
+Examples of usage:
+.nf
+.RS
+# list comments for an issue
+$ jic comments list CARD-123
+
+# list comments for issues provided through standard input
+$ echo CARD-123 | jic comments list -k
+.RE
+.fi
 
 
 .SS comments show <issue:comment> [<issue:comment>]
@@ -358,11 +420,23 @@ TODO: document
 TODO: document
 
 .SS commands symlink
-This command creates symlinks as defined in fonfiguration (under
-\fIcommands\fR subtree). The place where symlinks are created is defined
-by the \fIsymlink.location\fR configuration option.
+This command creates symlinks for all the \fIporcelain\fR mode commands
+as defined in fonfiguration (under \fIcommands\fR subtree). The place
+where symlinks are created is defined by the \fIsymlink.location\fR
+configuration option (default location is the location of jic script
+itself).
+
+Switches:
 
 TODO: document
+
+Examples of usage:
+.nf
+.RS
+# create symlinks for all porcelain commands defined
+$ jic commands symlink
+.RE
+.fi
 
 .SS configuration
 TODO: document
@@ -373,8 +447,60 @@ configuration file.
 
 TODO: document
 
-.SS issues
-TODO: document
+.SS issues <subcommand> [<switches>] [<arguments>]
+This group of commands covers operations with issues.
+
+.SS issues create <switches> <issue_key ...>
+This command allows creating one or more issues using an editor. Stdio
+based version is not implemented yet.
+
+When using editor mode (by specifying -\fBe\fR switch) it is possible
+not only to create new issues, but also edit existing ones. All the
+issues whos keys are listed as arguments will be included in the jicML
+file for editing (unless -\fBd\fR switch is specified, in which case all
+the listed issues will be treated as parents for new issues being
+created).
+
+Switches:
+
+.IP "-\fBd\fR, --\fBdown\fR"
+    create children of the issues mentioned using other options and/or
+    arguments
+.IP "-\fBD\fR \fIISSUE_LIST\fR, --\fBdown-from\fR \fIISSUE_LIST\fR"
+    cwcreate children for the parent issues specified
+.IP "-\fBe\fR, --\fBeditor\fR"
+    invokes an editor to get new comments' text
+.IP "-\fBL\fR \fILINK_TYPE_LIST\fR, --\fBlink-types\fR \fILINK_TYPE_LIST\fR"
+    create links to parents of the types specified
+.IP "-\fBT\fR \fIISSUE_TYPE_LIST\fR, --\fBissue-types\fR \fIISSUE_TYPE_LIST\fR"
+    create new issues of the types specified
+
+Examples of usage:
+.nf
+.RS
+# create a Blueprint for CARD-123 for the project with a key PMWG:
+# * as -d switch is specified, all the issue ids not prefixed by 'NEW-'
+#   are treated as parents for the new cards created
+# * an editor is used to allow user editing jicML as -e is specified
+$ jic create -e -T Blueprint -d CARD-123 NEW-PMWG-1
+
+# create an engineering card and a blueprint for project with key KWG:
+# * as CARD-123 is listed for -D key, it is used as a parent issue to
+#   create new issues under (edited as needed in jicML to ensure proper
+#   linkage between new issues)
+# * new issue is linked to its parent using the default 'Implements'
+#   type of link
+# * an editor is used to allow user editing jicML as -e is specified
+$ jic create -e -T "Engineering Card,Blueprint" -D CARD-123 NEW-KWG-1 NEW-KWG-2
+
+# create a Blueprint and edit another one at the same time:
+# * due to being listed for -D switch PMWG-123 is treated as a parent
+#   for the new issues created
+# * an editor is used to allow user editing jicML as -e is specified
+$ jic create -e -D PMWG-123 -T Blueprint PMWG-124 NEW-PMWG-1
+.RE
+.fi
+
 
 .SS issues edit
 This command allows editing one or more issues using an editor. Stdio
@@ -465,6 +591,20 @@ This command shows information about a known server.
 
 TODO: document
 
+.SH Providing issue keys/comment IDs
+There are several methods of providing a list of object ids (issue keys,
+issue comment ids, etc):
+
+.IP "as arguments"
+in this case keys/ids are processed in the order as provided
+
+.IP "from standard input (when -\fBk\fR switch is specified)"
+in this case \fBjic\fR reads standard input until the first empty line
+of text and tries to parse the lines of text as a list of
+coma/whitespace separated object ids; if there are also ids provided as
+arguments, those will be processed after the ones provided using the
+standard input
+
 .SH CONFIGURATION
 \fBjic\fR uses Python interpreter to process its configuration file.
 Thus it is possible to use many (if not all) Python features in the
@@ -484,7 +624,8 @@ o.servers.myjira.user = 'some.user@some.org'
 .RE
 .fi
 
-Please see \fBjic-config\fR for details.
+Please see \fBjic-config\fR for details on th esupported configuration
+options.
 
 TODO: complete
 
@@ -516,7 +657,7 @@ Serge Broslavsky <serge.broslavsky@linaro.org>
 Contributions from others can be found by using \fBgit log\fR(1)
 command.
 
-.SH SOURCES
+.SH CONTRIBUTING
 
 \fBjic\fR's sources are hosted on GitHub:
 .nf
@@ -532,13 +673,21 @@ https://github.com/ototo/jic.git
 .RE
 .fi
 
-.SH REPORTING BUGS
-
-Please report bugs to the \fBjic\fR mailing list:
+Use the following mailing list to discuss \fBjic\fR development:
 .nf
 .RS
 jic-dev@lists.linaro.org
 http://lists.linaro.org/mailman/listinfo/jic-dev 
+.RE
+.fi
+
+
+.SH REPORTING BUGS
+
+Please report bugs to the \fBjic\fR bugzilla:
+.nf
+.RS
+https://bugs.linaro.org/describecomponents.cgi?product=jic
 .RE
 .fi
 
