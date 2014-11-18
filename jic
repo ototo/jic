@@ -871,7 +871,7 @@ class JQL (object):
             right = JQL.emit_filter(right, variables)
         elif isinstance(right, list):
             right = '(' + (','.join([('"%s"' % item) \
-                        for item in value])) + ')'
+                        for item in right])) + ')'
         else:
             if right[0] == '$':
                 right = variables.get(right[1:], left)
