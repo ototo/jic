@@ -1735,6 +1735,13 @@ class CommandLine (object):
                 keys.extend(new_keys)
             cfg.o.set('query.args', keys)
 
+        if cfg.o.get('query.from_stdin', False):
+            stdin_query = sys.stdin.readline().strip()
+            if stdin_query:
+                queries = cfg.o.get('query.jql', [])
+                queries.append(stdin_query)
+                cfg.o.set('query.jql', queries)
+
 
     def execute(self, cfg):
         # TODO: implement
@@ -2369,12 +2376,12 @@ class CommandLine (object):
         #parser.add_argument('-P', '--purge', nargs=1, action='append',
             #dest='items_to_purge', metavar='ITEM_LIST',
             #help='process only items mentioned')
-        #parser.add_argument('-q', '--query', nargs=1, action='append',
-            #dest='query', metavar='JQL_query',
-            #help='get the list of issues to process using a JQL query')
-        #parser.add_argument('-Q', '--query-stdin', action='store_true',
-            #dest='query_in_stdin', default=None,
-            #help='get the list of issues to process using a JQL query')
+        parser.add_argument('-q', '--query', nargs=1, action='append',
+            dest='query', metavar='JQL_query',
+            help='get the list of issues to process using a JQL query')
+        parser.add_argument('-Q', '--query-stdin', action='store_true',
+            dest='query_in_stdin', default=None,
+            help='get the list of issues to process using a JQL query')
         parser.add_argument('-r', '--raw', action='store_true',
             dest='output_raw', default=None,
             help='output raw data')
@@ -3854,6 +3861,7 @@ class Cache (object):
                 u'Internal error: empty filter for get_by_query')
 
         result = []
+        issues = ()
 
         for jql in query:
 
@@ -3882,9 +3890,11 @@ class Cache (object):
                     sc = int(Util.get_nested_value(e, 'status_code', 0))
                     if sc >= 400 and sc < 500:
                         vpre(VERBOSITY_ERRORS,
-                            u'ERROR: Issue%s \'%s\' not found.' % ( \
-                                u's' if len(issues) > 1 else u'',
-                                u', '.join(issues)))
+                            u'ERROR: %s' % str(e.text))
+                        #vpre(VERBOSITY_ERRORS,
+                            #u'ERROR: Issue%s \'%s\' not found.' % ( \
+                                #u's' if len(issues) > 1 else u'',
+                                #u', '.join(issues)))
                         # TODO: should we abort in this case?
                         #return ()
                     else:
