@@ -22,12 +22,26 @@ To install all the dependencies do the following as root:
     http://www.pip-installer.org/en/latest/installing.html
 
 
-3. install jira.python
+3. install oauth2 (needed for OAuth)
+
+    $ sudo apt-get install python-oauth2
+
+    OR
+
+    $ sudo pip install oauth2
+
+
+4. install requests-oauthlib (needed for OAuth)
+
+    $ sudo pip install requsts-oauthlib
+
+
+5. install jira.python
 
     $ sudo pip install jira-python
 
 
-4. install pycrypto (needed for OAuth)
+6. install pycrypto (needed for OAuth)
 
     $ sudo pip install pycrypto
 
@@ -51,16 +65,7 @@ To install all the dependencies do the following as root:
         # rm -Irf ./tmp
 
 
-5. install oauth2 (needed for OAuth)
-
-    $ sudo apt-get install python-oauth2
-
-    OR
-
-    $ sudo pip install oauth2
-
-
-6. optional - install python-magic
+7. optional - install python-magic
 
     If you're getting the following error
 
@@ -86,9 +91,9 @@ To install all the dependencies do the following as root:
     $ sudo pip install python-magic
 
 
-7. Put config file into ~/.jic/
+8. Put config file into ~/.jic/
 
-8. Create symlinks for the porcelain mode commands
+9. Create symlinks for the porcelain mode commands
 
     $ jic commands symlink
 
