@@ -2290,7 +2290,7 @@ class CommandLine (object):
             help='set porcelain mode of operation')
         parser.add_argument('--plumbing', action='store_const',
             const='plumbing', dest='mode',
-            help='set porcelain mode of operation')
+            help='set plumbing mode of operation')
 
         return parser
 
