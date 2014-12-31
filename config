@@ -106,7 +106,7 @@ o.commands.jsh.sc.all.plumbing = 'issues show -p all'
 
 o.commands.jls.aliases = 'list,lis,li,ls,l'
 o.commands.jls.help = 'list issues reported by or assigned to you'
-o.commands.jls.plumbing = 'issues list -f assignee=$me -f reporter=$me'
+o.commands.jls.plumbing = 'issues list -f assignee=$me,status],Closed,Resolved[ -f reporter=$me,status],Closed,Resolved['
 
 o.commands.jls.sc.assigned.aliases = 'assigne,assign,assig,assi,ass,as,a'
 o.commands.jls.sc.assigned.help = 'list issues assigned to you'
