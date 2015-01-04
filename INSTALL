@@ -65,7 +65,18 @@ To install all the dependencies do the following as root:
         # rm -Irf ./tmp
 
 
-7. optional - install python-magic
+7. optional - install keyring module
+
+    If you would like to use your keyring manager to store your JIRA
+    password intead of using OAuth or storing it in config in plain text
+    format, you may want to install `keyring` module. If that module is
+    available on the system and OAuth in not configured, jic will use
+    keyring store to store passwords.
+
+    $ sudo pip install keyring
+
+
+8. optional - install python-magic
 
     If you're getting the following error
 
@@ -91,13 +102,14 @@ To install all the dependencies do the following as root:
     $ sudo pip install python-magic
 
 
-8. Put config file into ~/.jic/
+9. Put `config` file into ~/.jic/
 
-9. Create symlinks for the porcelain mode commands
+
+10. Create symlinks for the porcelain mode commands
 
     $ jic commands symlink
 
 
 On the first attempt to run jic it will try to import the existing
-config at ~/.jicrr. Please use the example config provided to create
-your own.
+config at ~/.jicrc. Please use the example config provided to create
+your own config.
