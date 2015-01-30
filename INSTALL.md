@@ -12,7 +12,7 @@ To install all the dependencies do the following as root:
     http://www.pip-installer.org/en/latest/installing.html
 
 
-2. install pip
+1. install pip
 
     e.g. for debian testing that can be done as:
 
@@ -22,7 +22,7 @@ To install all the dependencies do the following as root:
     http://www.pip-installer.org/en/latest/installing.html
 
 
-3. install oauth2 (needed for OAuth)
+1. install oauth2 (needed for OAuth)
 
     $ sudo apt-get install python-oauth2
 
@@ -31,17 +31,17 @@ To install all the dependencies do the following as root:
     $ sudo pip install oauth2
 
 
-4. install requests-oauthlib (needed for OAuth)
+1. install requests-oauthlib (needed for OAuth)
 
     $ sudo pip install requsts-oauthlib
 
 
-5. install jira.python
+1. install jira.python
 
     $ sudo pip install jira-python
 
 
-6. install pycrypto (needed for OAuth)
+1. install pycrypto (needed for OAuth)
 
     $ sudo pip install pycrypto
 
@@ -65,7 +65,7 @@ To install all the dependencies do the following as root:
         # rm -Irf ./tmp
 
 
-7. optional - install keyring module
+1. optional - install keyring module
 
     If you would like to use your keyring manager to store your JIRA
     password intead of using OAuth or storing it in config in plain text
@@ -76,7 +76,7 @@ To install all the dependencies do the following as root:
     $ sudo pip install keyring
 
 
-8. optional - install python-magic
+1. optional - install python-magic
 
     If you're getting the following error
 
@@ -102,10 +102,10 @@ To install all the dependencies do the following as root:
     $ sudo pip install python-magic
 
 
-9. Put `config` file into ~/.jic/
+1. Put `config` file into ~/.jic/
 
 
-10. Create symlinks for the porcelain mode commands
+1. Create symlinks for the porcelain mode commands
 
     $ jic commands symlink
 
