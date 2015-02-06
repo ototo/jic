@@ -43,8 +43,9 @@ try:
                                Project, Resolution, Status, User, \
                                Version, Worklog
 except ImportError:
-    print('Could not find jira-python module. Please install it as '\
-          'described in INSTALL file. Aborting.')
+    vpre(VERBOSITY_ERRORS, 
+         'Could not find jira-python module. Please install it as '\
+         'described in INSTALL file. Aborting.')
     sys.exit(1)
 
 __version__ = '15.01.1-next'
@@ -3336,15 +3337,20 @@ class Cache (object):
             password = get_password(name, user)
         except ImportError:
             vpre(VERBOSITY_INFO,
-                 u'keyring module not installed, getting password from console',
-                 end=u'')
+                 u'keyring module not installed, getting password '\
+                 u'from console')
             password = None
 
-        if not password:
+        if password:
+            vpre(VERBOSITY_INFO,
+                 u'Retrieved password from default keyring')
+        else:
             password = self.get_password_from_console(server, user)
 
             try:
                 set_password(name, user, password)
+                vpre(VERBOSITY_WARNINGS,
+                     u'Stored password into your default keyring')
             except:
                 pass
         return password
@@ -3845,13 +3851,12 @@ class Cache (object):
 
             try:
                 vpre(VERBOSITY_INFO,
-                    u'Fetching issues using JQL: \'%s\'...' % jql,
-                    end=u'')
+                    u'Fetching issues using JQL: \'%s\'...' % jql)
                 issues = self.get_jira().search_issues(
                                     jql, fields='*all',
                                     expand='changelog',
                                     maxResults=limit)
-                vpre(VERBOSITY_INFO, u' - done!')
+                #vpre(VERBOSITY_INFO, u' - done!')
                 vpre(VERBOSITY_INFO,
                     u'Caching %d issues...' % len(issues),
                     end=u'')
@@ -3912,13 +3917,12 @@ class Cache (object):
                                     and self.search_online):
                 try:
                     vpre(VERBOSITY_INFO,
-                        u'Fetching issues using JQL: \'%s\'...' % jql,
-                        end=u'')
+                        u'Fetching issues using JQL: \'%s\'...' % jql)
                     issues = self.get_jira().search_issues(
                                         jql, fields='*all',
                                         expand='changelog',
                                         maxResults=limit)
-                    vpre(VERBOSITY_INFO, u' - done!')
+                    #vpre(VERBOSITY_INFO, u' - done!')
                     vpre(VERBOSITY_INFO,
                         u'Caching %d issues...' % len(issues),
                         end=u'')
