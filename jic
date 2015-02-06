@@ -14,6 +14,7 @@
 
 from __future__ import print_function
 import sys
+import imp
 import argparse
 import signal
 from os.path import expanduser, expandvars, isfile
@@ -29,7 +30,6 @@ import urlparse
 import textwrap
 import difflib
 from tlslite.utils import keyfactory
-import oauth2 as oauth
 import datetime
 import json
 import errno
@@ -2728,22 +2728,35 @@ class Cache (object):
                     'URL is missing for server \'%s\'' % self.srv_name)
 
             if oauth_token and oauth_secret:
-                #vpre(VERBOSITY_INFO, u'INFO: Using OAuth to connect to JIRA')
                 if not oauth_cert:
-                    raise RuntimeError(
-                        'OAuth certificate is missing for server \'%s\'' %\
+                    vpre(VERBOSITY_WARNINGS, 
+                         u'OAuth certificate is missing for the server '\
+                        '\'%s\' - not using OAuth' %\
                                 self.srv_name)
+                else:
+                    try:
+                        oauth2_location = imp.find_module('oauth2')
+                        oauth2 = imp.load_module('oauth2', *oauth2_location)
+                        sys.modules['oauth'] = oauth2
+                        options = { 'server': server, 'verify': False }
 
-                options = { 'server': server, 'verify': False }
-
-                oauth_auth = {
-                    'access_token': oauth_token,
-                    'access_token_secret': oauth_secret,
-                    'consumer_key': 'jic-tool',
-                    'key_cert': oauth_cert
-                }
-                self.jira = JIRA(options=options, oauth=oauth_auth)
-                return self.jira
+                        oauth_auth = {
+                            'access_token': oauth_token,
+                            'access_token_secret': oauth_secret,
+                            'consumer_key': 'jic-tool',
+                            'key_cert': oauth_cert
+                        }
+                        self.jira = JIRA(options=options, oauth=oauth_auth)
+                        vpre(VERBOSITY_INFO,
+                             u'Using OAuth to connect to JIRA')
+                        return self.jira
+                    except ImportError, e:
+                        vpre(VERBOSITY_WARNINGS,
+                             u'Unable to import oauth2 module - not '\
+                             u'using OAuth')
+                    finally:
+                        if oauth2_location[0]:
+                            oauth2_location.close()
 
             if user and not password:
                 password = self.get_password_from_keyring_or_console(
