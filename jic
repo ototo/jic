@@ -3343,10 +3343,10 @@ class Cache (object):
         if not password:
             password = self.get_password_from_console(server, user)
 
-        try:
-            set_password(name, user, password)
-        except:
-            pass
+            try:
+                set_password(name, user, password)
+            except:
+                pass
         return password
 
 
