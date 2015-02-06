@@ -33,7 +33,7 @@ To install all the dependencies do the following as root:
 
 1. install requests-oauthlib (needed for OAuth)
 
-    $ sudo pip install requsts-oauthlib
+    $ sudo pip install requests-oauthlib
 
 
 1. install jira.python
