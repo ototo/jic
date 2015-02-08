@@ -48,7 +48,7 @@ except ImportError:
          'described in INSTALL file. Aborting.')
     sys.exit(1)
 
-__version__ = '15.01.1-next'
+__version__ = '15.01.6'
 
 
 JIC_PROGRAM_NAME = 'jic'
