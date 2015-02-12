@@ -89,7 +89,7 @@ try:
 except ImportError:
     vpre(VERBOSITY_ERRORS,
          'Could not find jira-python module. Please install it as '\
-         'described in INSTALL file. Aborting.')
+         'described in INSTALL.md file. Aborting.')
     sys.exit(1)
 
 class Util (object):
