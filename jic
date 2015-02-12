@@ -37,7 +37,7 @@ import traceback
 from collections import OrderedDict
 
 
-__version__ = '15.01.6'
+__version__ = '15.07.1'
 
 
 JIC_PROGRAM_NAME = 'jic'
