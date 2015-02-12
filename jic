@@ -36,17 +36,6 @@ import errno
 import traceback
 from collections import OrderedDict
 
-try:
-    from jira.client import JIRA
-    from jira.exceptions import JIRAError
-    from jira.resources import Comment, Component, Issue, IssueType, \
-                               Project, Resolution, Status, User, \
-                               Version, Worklog
-except ImportError:
-    vpre(VERBOSITY_ERRORS, 
-         'Could not find jira-python module. Please install it as '\
-         'described in INSTALL file. Aborting.')
-    sys.exit(1)
 
 __version__ = '15.01.6'
 
@@ -59,6 +48,49 @@ VERBOSITY_ERRORS    = 1
 VERBOSITY_WARNINGS  = 2
 VERBOSITY_INFO      = 3
 
+verbosity = VERBOSITY_ERRORS
+
+def vset(new_verbosity):
+    """Set current verbosity level."""
+    global verbosity
+    verbosity = new_verbosity
+
+
+def vget():
+    """Get current verbosity level."""
+    global verbosity
+    return verbosity
+
+
+def vpre(msg_verbosity, string=u'', end=u'\n', flush=False):
+    """Output the string to stderr if its verbosity does not exceed
+    the current verbosity."""
+    global verbosity
+    if msg_verbosity <= verbosity:
+        print(string.encode('utf-8'), file=sys.stderr, end=end)
+        if flush:
+            sys.stderr.flush()
+
+def vpr(string=u'', end=u'\n', flush=False):
+    """Output the string to stdout if its verbosity does not exceed
+    the current verbosity."""
+    global verbosity
+    if msg_verbosity <= verbosity:
+        print(string.encode('utf-8'), file=sys.stdout, end=end)
+        if flush:
+            sys.stdout.flush()
+
+try:
+    from jira.client import JIRA
+    from jira.exceptions import JIRAError
+    from jira.resources import Comment, Component, Issue, IssueType, \
+                               Project, Resolution, Status, User, \
+                               Version, Worklog
+except ImportError:
+    vpre(VERBOSITY_ERRORS,
+         'Could not find jira-python module. Please install it as '\
+         'described in INSTALL file. Aborting.')
+    sys.exit(1)
 
 class Util (object):
 
@@ -7260,36 +7292,6 @@ def pr(string=u'', end=u'\n', flush=False):
     print(string.encode('utf-8'), file=sys.stdout, end=end)
     if flush:
         sys.stdout.flush()
-
-def vset(new_verbosity):
-    """Set current verbosity level."""
-    global verbosity
-    verbosity = new_verbosity
-
-
-def vget():
-    """Get current verbosity level."""
-    global verbosity
-    return verbosity
-
-
-def vpre(msg_verbosity, string=u'', end=u'\n', flush=False):
-    """Output the string to stderr if its verbosity does not exceed
-    the current verbosity."""
-    global verbosity
-    if msg_verbosity <= verbosity:
-        print(string.encode('utf-8'), file=sys.stderr, end=end)
-        if flush:
-            sys.stderr.flush()
-
-def vpr(string=u'', end=u'\n', flush=False):
-    """Output the string to stdout if its verbosity does not exceed
-    the current verbosity."""
-    global verbosity
-    if msg_verbosity <= verbosity:
-        print(string.encode('utf-8'), file=sys.stdout, end=end)
-        if flush:
-            sys.stdout.flush()
 
 def main():
 
